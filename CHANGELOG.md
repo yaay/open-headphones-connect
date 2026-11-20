@@ -1,0 +1,24 @@
+# Changelog
+
+Notable changes to Open Headphones Connect, newest first.
+
+## 0.1.0 (2026-11-21)
+
+The first public release.
+
+- Connect card with a 3D model, battery level and the active noise mode, shown every time the
+  headphones connect.
+- Battery percentage in the tray icon, with a notification at 20%.
+- Noise control: noise cancelling, wind noise reduction, ambient sound with level and focus on
+  voice, and off, for every noise-control layout in Sony's message tables.
+- Playback: volume, play / pause and skipping tracks.
+- Equalizer with the presets, bands and range each headset describes.
+- Headphone settings: DSEE upscaling, Speak-to-Chat, pause when taken off, touch panel,
+  connecting to two devices, voice guidance and automatic power-off.
+- One-click connect / disconnect of the headphones' audio.
+- Your own 3D model on the connect card, loaded from your settings folder.
+- Start with Windows.
+
+Tested on a WH-1000XM3 only. Second-generation models (WH-1000XM5 and later, WF-1000XM4 and
+later, LinkBuds) are implemented from Sony's message tables and checked against recordings of
+real WF-1000XM5 and LinkBuds Clip earbuds, but have never been connected to this app.

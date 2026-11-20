@@ -1,0 +1,1021 @@
+/* Windows 11 Fluent: WinUI 3 colour, type and motion values. The window's
+   acrylic backdrop is drawn by Windows; this page stays transparent over it. */
+
+:root {
+  color-scheme: light dark;
+
+  --text: rgba(0, 0, 0, 0.894);
+  --text-2: rgba(0, 0, 0, 0.606);
+  --text-3: rgba(0, 0, 0, 0.446);
+  --fill: rgba(255, 255, 255, 0.7);
+  --fill-hover: rgba(249, 249, 249, 0.5);
+  --fill-press: rgba(249, 249, 249, 0.3);
+  --stroke: rgba(0, 0, 0, 0.058);
+  --stroke-bottom: rgba(0, 0, 0, 0.162);
+  --stroke-strong: rgba(0, 0, 0, 0.446);
+  --subtle-hover: rgba(0, 0, 0, 0.037);
+  --subtle-press: rgba(0, 0, 0, 0.024);
+  --layer: rgba(255, 255, 255, 0.5);
+  --layer-stroke: rgba(0, 0, 0, 0.058);
+  --tint: rgba(243, 243, 243, 0.5);
+  --accent: var(--accent-on-light, #005fb8);
+  --on-accent: #ffffff;
+  --thumb: #ffffff;
+  --critical: #c42b1c;
+  --caution-fill: #fff4ce;
+  --focus: rgba(0, 0, 0, 0.894);
+  --hp-rim: rgba(0, 0, 0, 0.1);
+  --spot: rgba(255, 255, 255, 0.5);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.2 4.2 6 8l3.8-3.8' fill='none' stroke='%23000' stroke-opacity='.6' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  --ease-out: cubic-bezier(0, 0, 0, 1);
+  --ease-point: cubic-bezier(0.55, 0.55, 0, 1);
+  --spring: cubic-bezier(0.34, 1.45, 0.64, 1);
+
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #ffffff;
+    --text-2: rgba(255, 255, 255, 0.786);
+    --text-3: rgba(255, 255, 255, 0.544);
+    --fill: rgba(255, 255, 255, 0.061);
+    --fill-hover: rgba(255, 255, 255, 0.084);
+    --fill-press: rgba(255, 255, 255, 0.033);
+    --stroke: rgba(255, 255, 255, 0.093);
+    --stroke-bottom: rgba(255, 255, 255, 0.07);
+    --stroke-strong: rgba(255, 255, 255, 0.544);
+    --subtle-hover: rgba(255, 255, 255, 0.061);
+    --subtle-press: rgba(255, 255, 255, 0.042);
+    --layer: rgba(255, 255, 255, 0.051);
+    --layer-stroke: rgba(0, 0, 0, 0.1);
+    --tint: rgba(28, 28, 28, 0.55);
+    --accent: var(--accent-on-dark, #60cdff);
+    --on-accent: #000000;
+    --thumb: #454545;
+    --critical: #ff99a4;
+    --caution-fill: #433519;
+    --focus: #ffffff;
+    --hp-rim: rgba(255, 255, 255, 0.2);
+    --spot: rgba(255, 255, 255, 0.085);
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.2 4.2 6 8l3.8-3.8' fill='none' stroke='%23fff' stroke-opacity='.79' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.stage {
+  position: fixed;
+  inset: 0;
+  background: var(--tint);
+  /* The window is sized to its content; this only matters when the content
+     is taller than the screen allows. */
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--stroke-strong) transparent;
+}
+
+.surface {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.glyph {
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 400;
+}
+
+/* ----- shared controls ----------------------------------------------------- */
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+}
+.icon-button:hover {
+  background: var(--subtle-hover);
+  color: var(--text);
+}
+.icon-button:active {
+  background: var(--subtle-press);
+  color: var(--text-2);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--stroke);
+  border-bottom-color: var(--stroke-bottom);
+  border-radius: 4px;
+  background: var(--fill);
+}
+.button:hover {
+  background: var(--fill-hover);
+}
+.button:active {
+  background: var(--fill-press);
+  color: var(--text-2);
+  border-bottom-color: var(--stroke);
+}
+.button:disabled {
+  color: var(--text-3);
+}
+.button-accent {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+}
+.button-accent:hover {
+  background: color-mix(in srgb, var(--accent) 90%, transparent);
+}
+.button-accent:active {
+  background: color-mix(in srgb, var(--accent) 80%, transparent);
+  color: color-mix(in srgb, var(--on-accent) 70%, transparent);
+}
+.button-accent:disabled {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--on-accent);
+}
+
+.ring {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+}
+.hint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-2);
+}
+.toggle {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--stroke-strong);
+  border-radius: 10px;
+  background: transparent;
+}
+.toggle:hover {
+  background: var(--subtle-hover);
+}
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition: transform 160ms var(--ease-point), scale 100ms;
+}
+.toggle:hover .toggle-knob {
+  scale: 1.17;
+}
+.toggle[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.toggle[aria-checked="true"] .toggle-knob {
+  background: var(--on-accent);
+  transform: translateX(20px);
+}
+
+.slider {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  --inner: 5px;
+}
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--accent) var(--pos), var(--stroke-strong) var(--pos));
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  border: 1px solid var(--stroke-bottom);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent) 0 var(--inner), var(--thumb) calc(var(--inner) + 0.6px));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.slider:hover {
+  --inner: 6.5px;
+}
+.slider:active {
+  --inner: 4.5px;
+}
+.slider-vertical {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 20px;
+  height: 104px;
+}
+.slider-vertical::-webkit-slider-runnable-track {
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(to top, var(--accent) var(--pos), var(--stroke-strong) var(--pos));
+}
+.slider-vertical::-webkit-slider-thumb {
+  margin-top: 0;
+  margin-left: -8px;
+}
+
+.select {
+  appearance: none;
+  height: 32px;
+  min-width: 132px;
+  padding: 0 32px 0 11px;
+  border: 1px solid var(--stroke);
+  border-bottom-color: var(--stroke-bottom);
+  border-radius: 4px;
+  background: var(--fill) var(--chevron) no-repeat right 10px center / 12px;
+}
+.select:hover {
+  background-color: var(--fill-hover);
+}
+.select option {
+  background-color: Canvas;
+  color: CanvasText;
+}
+
+.battery {
+  width: 24px;
+  height: 14px;
+  flex: none;
+  color: var(--text-2);
+}
+.battery-level {
+  fill: var(--text);
+}
+.battery-low .battery-level {
+  fill: var(--critical);
+}
+.battery-charging .battery-level {
+  fill: var(--text-3);
+}
+.battery-bolt {
+  fill: var(--text);
+  stroke: var(--thumb);
+  stroke-width: 0.6;
+  paint-order: stroke;
+}
+
+.noise-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.notice {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--layer-stroke);
+  border-radius: 4px;
+  background: var(--caution-fill);
+  font-size: 12px;
+  line-height: 16px;
+}
+.notice .glyph {
+  font-size: 14px;
+  margin-top: 1px;
+}
+
+/* ----- the headphones ------------------------------------------------------ */
+
+.hp {
+  position: relative;
+}
+.hp svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+.hp-black {
+  --hp-band: #2b2c30;
+  --hp-cup-top: #404147;
+  --hp-cup-bottom: #1d1e21;
+  --hp-pad: #111113;
+  --hp-cushion: #18181b;
+  --hp-trim: #b87a4b;
+  --hp-gauge-track: rgba(255, 255, 255, 0.16);
+  --hp-gauge: var(--accent-on-dark, #60cdff);
+  --hp-gauge-low: #ff99a4;
+  --hp-gauge-charging: #6ccb5f;
+}
+.hp-silver {
+  --hp-band: #d6d0c6;
+  --hp-cup-top: #ece7de;
+  --hp-cup-bottom: #b9b2a6;
+  --hp-pad: #8b857b;
+  --hp-cushion: #a59f94;
+  --hp-trim: #b08a55;
+  --hp-gauge-track: rgba(0, 0, 0, 0.14);
+  --hp-gauge: var(--accent-on-light, #005fb8);
+  --hp-gauge-low: #c42b1c;
+  --hp-gauge-charging: #0f7b0f;
+}
+.hp-rim {
+  stroke: var(--hp-rim);
+}
+rect.hp-rim {
+  stroke-width: 1;
+}
+.hp-gauge-track {
+  stroke: var(--hp-gauge-track);
+}
+.hp-gauge-fill {
+  stroke: var(--hp-gauge);
+  transition: stroke-dashoffset 1100ms cubic-bezier(0.22, 0.61, 0.36, 1), opacity 160ms, stroke 300ms;
+}
+.hp-gauge-low .hp-gauge-fill {
+  stroke: var(--hp-gauge-low);
+}
+.hp-gauge-charging .hp-gauge-fill {
+  stroke: var(--hp-gauge-charging);
+}
+.hp-dimmed svg {
+  opacity: 0.4;
+  filter: saturate(0.5);
+}
+.hp-inner {
+  position: absolute;
+  inset: 40% 30% 6%;
+  display: grid;
+  place-items: center;
+}
+
+/* The connect sequence: the headband draws out from the crown, the ear cups
+   drop onto its ends, one pulse of sound leaves each cup, and then the gauge
+   fills (that last step is a transition started from Headphones.tsx). */
+.hp-entrance .hp-band path {
+  stroke-dasharray: 100;
+  animation: hp-draw 560ms var(--ease-point) both;
+}
+.hp-entrance .hp-band .hp-cushion {
+  stroke-dasharray: none;
+  animation: hp-fade 300ms ease-out 360ms both;
+}
+.hp-entrance .hp-cup {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+  animation: hp-cup 520ms var(--spring) 400ms both;
+}
+.hp-entrance .hp-cup-right {
+  animation-delay: 470ms;
+}
+.hp-entrance .hp-gauge-track {
+  animation: hp-fade 300ms ease-out 700ms both;
+}
+.hp-wave {
+  stroke: var(--text-3);
+  opacity: 0;
+  animation: hp-wave-left 900ms ease-out 860ms both;
+}
+.hp-wave-right {
+  animation-name: hp-wave-right;
+}
+.hp-wave-far {
+  animation-delay: 980ms;
+}
+.hp-entrance .hp-inner {
+  animation: hp-fade 320ms ease-out 820ms both;
+}
+
+@keyframes hp-draw {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+@keyframes hp-cup {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.8);
+  }
+  35% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes hp-wave-left {
+  0% {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  30% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+@keyframes hp-wave-right {
+  0% {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  30% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+}
+
+/* ----- the connect card ---------------------------------------------------- */
+
+.card {
+  position: relative;
+  padding: 22px 24px 22px;
+  text-align: center;
+  opacity: 0;
+}
+.card-in {
+  opacity: 1;
+  transition: opacity 220ms var(--ease-out);
+}
+.card-leaving {
+  opacity: 0;
+  transition: opacity 160ms ease-in;
+}
+.card:focus-visible {
+  outline-offset: -4px;
+}
+.card-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+.card-name {
+  font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+}
+.card-stage {
+  position: relative;
+  height: 236px;
+  margin: 2px -12px 0;
+}
+/* A faint pool of light behind the headphones, so a black pair still stands
+   out on a dark card. */
+.card-stage::before {
+  content: "";
+  position: absolute;
+  inset: -6px 34px 6px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--spot), transparent);
+}
+/* Taller than the stage: the extra 30px above and below is headroom for the
+   entrance, and overlaps the title and battery line without covering them. */
+.card-model {
+  position: absolute;
+  inset: -30px 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.card-model canvas,
+.inspect canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.card-flat {
+  width: 224px;
+  margin: 0 auto;
+  padding-top: 26px;
+}
+/* The soft shadow the headphones cast on the "floor" of the card. */
+.card-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 168px;
+  height: 20px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0));
+  opacity: 0;
+}
+.card-in .card-shadow {
+  animation: shadow-in 1100ms var(--ease-out) 350ms both;
+}
+.card-details {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+}
+.card-battery {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.card-battery .battery {
+  width: 30px;
+  height: 17.5px;
+}
+.card-charging {
+  font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  color: var(--text-2);
+}
+.card-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+.card-status-glyph {
+  font-size: 14px;
+  color: var(--text-3);
+}
+.card-in .card-name {
+  animation: rise 360ms var(--ease-out) 120ms both;
+}
+.card-in .card-battery {
+  animation: rise 360ms var(--ease-out) 900ms both;
+}
+.card-in .card-status {
+  animation: rise 360ms var(--ease-out) 1020ms both;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes shadow-in {
+  from {
+    opacity: 0;
+    scale: 0.4 1;
+  }
+  to {
+    opacity: 1;
+    scale: 1 1;
+  }
+}
+
+/* ----- the panel ----------------------------------------------------------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.header {
+  position: relative;
+  display: grid;
+  grid-template-columns: 88px 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 2px 0 6px;
+}
+/* A fixed box, so the header does not shift when the picture arrives. */
+.header-photo {
+  width: 88px;
+  height: 88px;
+}
+.header-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: hp-fade 220ms ease-out;
+  transition: opacity 200ms, filter 200ms;
+}
+.header-photo-off img {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+.header-settings {
+  align-self: start;
+  margin: -4px -6px 0 0;
+}
+.header-name {
+  font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-status {
+  color: var(--text-2);
+}
+.header-batteries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 6px;
+}
+.battery-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress::after {
+  content: "";
+  position: absolute;
+  inset: 0 60% 0 0;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: progress 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes progress {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(260%);
+  }
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--layer-stroke);
+  border-radius: 4px;
+  background: var(--layer);
+}
+.section-title {
+  font-weight: 600;
+}
+.section-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-row .section-title {
+  flex: 1;
+}
+
+.tiles {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 60px;
+  padding: 0 4px;
+  border: 1px solid var(--stroke);
+  border-bottom-color: var(--stroke-bottom);
+  border-radius: 4px;
+  background: var(--fill);
+  font-size: 12px;
+  line-height: 16px;
+  transition: background-color 120ms, color 120ms;
+}
+.tile:hover {
+  background: var(--fill-hover);
+}
+.tile:active {
+  background: var(--fill-press);
+}
+.tile[aria-checked="true"] {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.transport {
+  display: flex;
+  gap: 2px;
+}
+.volume {
+  display: grid;
+  grid-template-columns: auto 1fr 36px;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-2);
+}
+.volume-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: hp-fade 180ms ease-out;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.setting-row .select {
+  min-width: 148px;
+}
+
+.ambient {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: hp-fade 180ms ease-out;
+}
+.ambient-level {
+  display: grid;
+  grid-template-columns: auto 1fr 20px;
+  align-items: center;
+  gap: 12px;
+}
+.ambient-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.bands {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding-top: 2px;
+  animation: hp-fade 180ms ease-out;
+}
+.band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 16px;
+}
+.band-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.band-label {
+  color: var(--text-2);
+}
+.bands-ten .band {
+  font-size: 11px;
+}
+
+.segments {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  background: var(--fill);
+}
+.segment {
+  height: 26px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+}
+.segment:hover {
+  background: var(--subtle-hover);
+}
+.segment[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 2px 0;
+  color: var(--text-2);
+}
+.empty .button {
+  align-self: flex-start;
+  min-width: 132px;
+}
+
+.footer {
+  display: flex;
+  gap: 8px;
+}
+.footer .button {
+  flex: 1;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 0 -6px;
+}
+.page-title {
+  font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.settings-group {
+  gap: 14px;
+}
+.about {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-3);
+}
+
+/* ----- browser-only simulator ---------------------------------------------- */
+
+.stage-simulated {
+  overflow: auto;
+  background: radial-gradient(60% 80% at 20% 10%, #a9d3ff 0%, transparent 60%),
+    radial-gradient(70% 70% at 90% 90%, #3a6fd8 0%, transparent 65%), #d9e8fb;
+}
+.stage-simulated .surface {
+  position: relative;
+  width: 360px;
+  margin: 76px auto 40px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: rgba(243, 243, 243, 0.78);
+  backdrop-filter: blur(36px) saturate(1.3);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.24);
+}
+.inspect {
+  display: block;
+  width: 640px;
+  height: 560px;
+  margin: 20px auto;
+  border-radius: 8px;
+  background: rgba(36, 36, 36, 0.9);
+}
+.simulator {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(20, 20, 20, 0.86);
+  color: #fff;
+  font-size: 12px;
+}
+.simulator span {
+  margin-right: 6px;
+  opacity: 0.7;
+}
+.simulator button {
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  background: transparent;
+  color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  .stage-simulated {
+    background: radial-gradient(60% 80% at 20% 10%, #1c3f7a 0%, transparent 60%),
+      radial-gradient(70% 70% at 90% 90%, #0d2a66 0%, transparent 65%), #0a1226;
+  }
+  .stage-simulated .surface {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(36, 36, 36, 0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}

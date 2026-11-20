@@ -1,0 +1,58 @@
+name: Headphones report
+description: Tell us how a headphone model behaves, whether it works or not.
+title: "[Headphones] "
+labels: ["headphones report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Only the WH-1000XM3 has been connected to this app, so every report from another model helps.
+        Thank you for taking the time.
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: As printed on the headphones or shown in Sony's app.
+      placeholder: WH-1000XM5
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Headphone firmware
+      description: Shown at the bottom of the app's settings page, or in Sony's app.
+      placeholder: "2.3.1"
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Shown at the bottom of the app's settings page.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: checkboxes
+    id: works
+    attributes:
+      label: What works
+      options:
+        - label: The connect card appears when the headphones connect
+        - label: Battery level is right
+        - label: Noise control modes switch correctly
+        - label: Ambient sound level and focus on voice
+        - label: Volume and play / pause / skip
+        - label: Equalizer presets and sliders
+        - label: Headphone settings (the switches and automatic power-off)
+        - label: Connect / Disconnect button
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What does not work, or looks wrong
+      description: What you did, what you expected and what happened instead.
+  - type: textarea
+    id: trace
+    attributes:
+      label: Trace
+      description: |
+        Quit the app, start it from PowerShell with `$env:OHC_TRACE = "1"` set, connect the headphones and try the
+        controls. Then drag `%LocalAppData%\dev.openheadphonesconnect.desktop\logs\app.log` into this box.
+        The trace holds the messages exchanged with the headphones (model, firmware, settings) and nothing about you or your PC.

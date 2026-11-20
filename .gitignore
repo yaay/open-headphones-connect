@@ -1,0 +1,17 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+.build/
+*.log
+
+# Per-machine build settings (see scripts/env.ps1).
+scripts/env.local.ps1
+
+# Your own 3D model for the connect card. Never committed or bundled:
+# see "Using your own 3D model" in the README.
+local/
+
+# Icon sets for platforms this app does not target (regenerate with `tauri icon`).
+src-tauri/icons/android/
+src-tauri/icons/ios/

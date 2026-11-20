@@ -1,0 +1,39 @@
+{
+  "name": "open-headphones-connect",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Unofficial open-source companion for Sony headphones on Windows: connect card, battery, noise control and more",
+  "license": "MIT",
+  "homepage": "https://github.com/yaay/open-headphones-connect",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yaay/open-headphones-connect.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yaay/open-headphones-connect/issues"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "@types/three": "^0.187.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}

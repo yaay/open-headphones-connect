@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Open Headphones Connect",
+  "version": "0.1.0",
+  "identifier": "dev.openheadphonesconnect.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Open Headphones Connect",
+        "width": 360,
+        "height": 320,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "shadow": true,
+        "focus": false,
+        "windowEffects": {
+          "effects": [
+            "acrylic"
+          ]
+        }
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "Open Headphones Connect contributors",
+    "copyright": "Copyright (c) 2026 Open Headphones Connect contributors. MIT License.",
+    "category": "Utility",
+    "shortDescription": "Unofficial companion for Sony headphones",
+    "longDescription": "An unofficial, open-source companion for Sony headphones on Windows: a connect card, battery in the tray, noise control, equalizer and headphone settings. Not made by or affiliated with Sony.",
+    "homepage": "https://github.com/yaay/open-headphones-connect",
+    "license": "MIT",
+    "licenseFile": "../LICENSE"
+  }
+}
