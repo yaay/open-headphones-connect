@@ -9,7 +9,7 @@ src-tauri/gen/
 scripts/env.local.ps1
 
 # Your own 3D model for the connect card. Never committed or bundled:
-# see "Using your own 3D model" in the README.
+# see docs/custom-model.md.
 local/
 
 # Icon sets for platforms this app does not target (regenerate with `tauri icon`).
