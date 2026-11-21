@@ -34,8 +34,30 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            core
+            src-tauri
 
-      - name: Run the Rust tests
+      - name: Test the shared core
+        working-directory: core
+        run: cargo test
+
+      - name: Test the Windows app
         working-directory: src-tauri
         run: cargo test --lib
+
+  # The protocol and session code is shared with the Mac app, so it has to
+  # build and pass its tests there too.
+  core-on-macos:
+    name: Shared core on macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Test the shared core
+        working-directory: core
+        run: cargo test

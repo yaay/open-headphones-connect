@@ -16,15 +16,13 @@ use windows::Win32::Networking::WinSock::{
     SEND_RECV_FLAGS, SOCKADDR, SOCKET, SOCKET_ERROR, SOCK_STREAM, WSADATA,
 };
 
+use ohc_core::platform;
+
 use super::{service_uuid, SonyDevice};
-use crate::protocol::framing::{Frame, Reassembler};
+use crate::protocol::framing::Reassembler;
 use crate::protocol::Generation;
 
-pub enum Incoming {
-    Frame(Frame),
-    /// The socket ended; carries the reason when it was not a clean close.
-    Closed(Option<String>),
-}
+pub use platform::Incoming;
 
 /// Closes the socket once the link and its reader thread have both let go.
 struct Socket(SOCKET);
@@ -143,6 +141,16 @@ impl Link {
             sent += count as usize;
         }
         Ok(())
+    }
+}
+
+impl platform::Link for Link {
+    fn listen(&self, on_incoming: Box<dyn FnMut(Incoming) + Send>) {
+        self.spawn_reader(on_incoming);
+    }
+
+    fn send(&self, bytes: &[u8]) -> Result<(), String> {
+        Link::send(self, bytes)
     }
 }
 

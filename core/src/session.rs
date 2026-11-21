@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::bluetooth::link::{Incoming, Link};
-use crate::bluetooth::{self, audio, SonyDevice};
+use crate::models;
+use crate::platform::{Bluetooth, Headset, Incoming, Link};
 use crate::protocol::framing::{pack, Frame, TYPE_ACK, TYPE_DATA_MDR, TYPE_DATA_MDR_NO2};
 use crate::protocol::{
     eq_preset_is_editable, v1, v2, Battery, BatterySlot, EqState, Event, Generation, NoiseMode,
@@ -82,7 +82,7 @@ pub struct SwitchState {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub phase: Phase,
-    /// The name Windows knows the headset by, which the owner can change.
+    /// The name the computer knows the headset by, which the owner can change.
     pub device_name: Option<String>,
     /// The model as the headset itself reports it, and Sony's colour code
     /// for this unit.
@@ -140,7 +140,7 @@ impl Snapshot {
 /// Tells a fresh connection (the headset was switched on) from the control
 /// link recovering after a brief hiccup.
 ///
-/// It does not rely on catching Windows in the act of reporting the headset
+/// It does not rely on catching the system in the act of reporting the headset
 /// as disconnected: a quick off-and-on can slip between two looks. A link
 /// that stayed down for a few seconds counts as the headset having been away.
 #[derive(Debug)]
@@ -159,7 +159,7 @@ impl Arrival {
         Arrival { away: true, lost_at: None }
     }
 
-    /// Windows reports the headset as not connected, or Bluetooth as off.
+    /// The system reports the headset as not connected, or Bluetooth as off.
     pub fn gone(&mut self) {
         self.away = true;
     }
@@ -217,15 +217,19 @@ impl Handle {
     }
 }
 
-/// Starts the session thread. `on_change` runs on that thread every time the
-/// snapshot changes.
-pub fn spawn(on_change: impl Fn(&Snapshot) + Send + 'static) -> Handle {
+/// Starts the session thread, which reaches the headset through `bluetooth`.
+/// `on_change` runs on that thread every time the snapshot changes.
+pub fn spawn(
+    bluetooth: impl Bluetooth + 'static,
+    on_change: impl Fn(&Snapshot) + Send + 'static,
+) -> Handle {
     let (tx, rx) = mpsc::channel();
     let handle = Handle { tx: tx.clone() };
     thread::Builder::new()
         .name("headset-session".into())
         .spawn(move || {
             Session {
+                bluetooth: Box::new(bluetooth),
                 rx,
                 tx,
                 on_change: Box::new(on_change),
@@ -280,7 +284,7 @@ fn demo_snapshot(model: &str, connections: u64) -> Snapshot {
         phase: Phase::Connected,
         device_name: Some(model.into()),
         model: Some(model.into()),
-        battery: if bluetooth::is_earbuds(model) {
+        battery: if models::is_earbuds(model) {
             Batteries { left: battery(90), right: battery(100), case: battery(60), ..Batteries::default() }
         } else {
             Batteries { single: battery(80), ..Batteries::default() }
@@ -408,7 +412,7 @@ enum Dialect {
 }
 
 struct Conn {
-    link: Link,
+    link: Box<dyn Link>,
     id: u64,
     seq: u8,
     acked: bool,
@@ -465,12 +469,13 @@ fn switch_command(conn: &Conn, id: Switch, on: bool) -> Option<(u8, Vec<u8>)> {
 }
 
 struct Session {
+    bluetooth: Box<dyn Bluetooth>,
     rx: Receiver<Msg>,
     tx: Sender<Msg>,
     on_change: Box<dyn Fn(&Snapshot) + Send>,
     snap: Snapshot,
     published: Option<Snapshot>,
-    device: Option<SonyDevice>,
+    device: Option<Box<dyn Headset>>,
     queue: VecDeque<Command>,
     /// Set after the user disconnects, so the still-up radio link is not
     /// immediately reopened.
@@ -510,11 +515,11 @@ impl Session {
     }
 
     fn run(mut self) {
-        bluetooth::init_thread();
+        self.bluetooth.init_thread();
         let mut last_scan: Option<Instant> = None;
         let mut failures: u32 = 0;
         loop {
-            if !bluetooth::radio_is_on() {
+            if !self.bluetooth.radio_is_on() {
                 self.device = None;
                 self.arrival.gone();
                 self.snap = Snapshot { phase: Phase::BluetoothOff, ..Snapshot::default() };
@@ -526,7 +531,7 @@ impl Session {
             let stale = last_scan.is_none_or(|at| at.elapsed() > RESCAN_EVERY);
             let offline = self.device.as_ref().is_none_or(|d| !d.is_connected());
             if stale && offline {
-                self.device = bluetooth::find_sony_device();
+                self.device = self.bluetooth.find_headset();
                 last_scan = Some(Instant::now());
             }
             let Some(device) = self.device.as_ref() else {
@@ -536,7 +541,7 @@ impl Session {
                 self.idle(Duration::from_secs(4));
                 continue;
             };
-            self.snap.device_name = Some(device.name.clone());
+            self.snap.device_name = Some(device.name().to_owned());
 
             let connected = device.is_connected();
             if !connected {
@@ -556,9 +561,9 @@ impl Session {
             self.snap.notice = None;
             self.set_phase(Phase::Connecting);
             let device = self.device.as_ref().expect("checked above");
-            match Link::open(device) {
+            match device.open() {
                 Ok((link, generation)) => {
-                    crate::log!("Control link open ({generation:?}) to {}", device.name);
+                    crate::log!("Control link open ({generation:?}) to {}", device.name());
                     let ended = self.serve(link, generation);
                     crate::log!("Control link ended: {ended}");
                     let was_working = self.snap.phase == Phase::Connected;
@@ -605,19 +610,11 @@ impl Session {
         }
     }
 
-    fn audio_target(&self) -> Option<audio::Target<'_>> {
-        self.device.as_ref().map(|d| audio::Target {
-            container_id: d.container_id,
-            name: &d.name,
-            address_hex: d.address_hex(),
-        })
-    }
-
     fn connect_audio(&mut self) {
         self.snap.pending = Some(Pending::ConnectingAudio);
         self.snap.notice = None;
         self.publish();
-        let result = self.audio_target().map(|t| audio::connect(&t));
+        let result = self.device.as_ref().map(|d| d.connect_audio());
         let name = self.snap.device_name.clone().unwrap_or_else(|| "the headphones".into());
         match result {
             Some(Ok(())) => {
@@ -642,7 +639,7 @@ impl Session {
     fn disconnect_audio(&mut self) {
         self.snap.pending = Some(Pending::Disconnecting);
         self.publish();
-        if let Some(Err(message)) = self.audio_target().map(|t| audio::disconnect(&t)) {
+        if let Some(Err(message)) = self.device.as_ref().map(|d| d.disconnect_audio()) {
             crate::log!("Disconnect request failed: {message}");
         }
         self.hold_off = true;
@@ -651,16 +648,16 @@ impl Session {
 
     // ----- a live link -----------------------------------------------------
 
-    fn serve(&mut self, link: Link, generation: Generation) -> String {
+    fn serve(&mut self, link: Box<dyn Link>, generation: Generation) -> String {
         self.next_link_id += 1;
         let id = self.next_link_id;
         let tx = self.tx.clone();
-        link.spawn_reader(move |incoming| {
+        link.listen(Box::new(move |incoming| {
             let _ = tx.send(match incoming {
                 Incoming::Frame(frame) => Msg::Frame(id, frame),
                 Incoming::Closed(why) => Msg::Closed(id, why),
             });
-        });
+        }));
 
         let name = self.snap.device_name.clone().unwrap_or_default();
         let mut conn = Conn {
@@ -679,8 +676,8 @@ impl Session {
             dialect: match generation {
                 // Guesses from the name, replaced by what the headset reports.
                 Generation::V1 => Dialect::V1(V1Link {
-                    wind_mode: bluetooth::has_wind_mode(&name),
-                    earbuds: bluetooth::is_earbuds(&name),
+                    wind_mode: models::has_wind_mode(&name),
+                    earbuds: models::is_earbuds(&name),
                     ..V1Link::default()
                 }),
                 Generation::V2 => Dialect::V2(V2Link::default()),

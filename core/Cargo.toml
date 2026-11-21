@@ -1,0 +1,15 @@
+[package]
+name = "ohc-core"
+version = "0.2.1"
+description = "Sony's headphone control protocol and the session that speaks it, shared by the Open Headphones Connect apps"
+authors = ["Open Headphones Connect contributors"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/yaay/open-headphones-connect"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

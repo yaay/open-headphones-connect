@@ -16,6 +16,9 @@ use windows_collections::IIterable;
 use windows::Foundation::IReference;
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
+use ohc_core::models::{generation_from_name, is_earbuds};
+use ohc_core::platform;
+
 use crate::protocol::{v1, v2, Generation};
 
 const CONTAINER_ID_PROPERTY: &str = "System.Devices.Aep.ContainerId";
@@ -63,6 +66,54 @@ impl SonyDevice {
     pub fn address_hex(&self) -> String {
         format!("{:012x}", self.address)
     }
+
+    fn audio_target(&self) -> audio::Target<'_> {
+        audio::Target {
+            container_id: self.container_id,
+            name: &self.name,
+            address_hex: self.address_hex(),
+        }
+    }
+}
+
+/// Windows Bluetooth, as the shared session sees it.
+pub struct Windows;
+
+impl platform::Bluetooth for Windows {
+    fn init_thread(&self) {
+        init_thread();
+    }
+
+    fn radio_is_on(&self) -> bool {
+        radio_is_on()
+    }
+
+    fn find_headset(&self) -> Option<Box<dyn platform::Headset>> {
+        find_sony_device().map(|device| Box::new(device) as Box<dyn platform::Headset>)
+    }
+}
+
+impl platform::Headset for SonyDevice {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn is_connected(&self) -> bool {
+        SonyDevice::is_connected(self)
+    }
+
+    fn open(&self) -> std::result::Result<(Box<dyn platform::Link>, Generation), String> {
+        link::Link::open(self)
+            .map(|(link, generation)| (Box::new(link) as Box<dyn platform::Link>, generation))
+    }
+
+    fn connect_audio(&self) -> std::result::Result<(), String> {
+        audio::connect(&self.audio_target())
+    }
+
+    fn disconnect_audio(&self) -> std::result::Result<(), String> {
+        audio::disconnect(&self.audio_target())
+    }
 }
 
 fn has_cached_service(device: &BluetoothDevice, generation: Generation) -> bool {
@@ -74,31 +125,6 @@ fn has_cached_service(device: &BluetoothDevice, generation: Generation) -> bool 
         Ok(result.Services()?.Size()? > 0)
     };
     check().unwrap_or(false)
-}
-
-/// Used only when Windows has no cached service record for the device.
-fn generation_from_name(name: &str) -> Option<Generation> {
-    let upper = name.to_ascii_uppercase();
-    let sony = ["WH-", "WF-", "MDR-", "LINKBUDS", "ULT WEAR", "INZONE"]
-        .iter()
-        .any(|prefix| upper.starts_with(prefix) || upper.starts_with(&format!("LE_{prefix}")));
-    if !sony {
-        return None;
-    }
-    let first_gen = ["XM3", "WH-1000XM4", "WH-1000XM2", "MDR-1000X", "H900N", "H910N", "XB900N", "CH710N"]
-        .iter()
-        .any(|model| upper.contains(model));
-    Some(if first_gen { Generation::V1 } else { Generation::V2 })
-}
-
-pub fn has_wind_mode(name: &str) -> bool {
-    let upper = name.to_ascii_uppercase();
-    ["WH-1000XM3", "WH-1000XM2", "MDR-1000X"].iter().any(|m| upper.contains(m))
-}
-
-pub fn is_earbuds(name: &str) -> bool {
-    let upper = name.to_ascii_uppercase();
-    upper.contains("WF-") || upper.contains("LINKBUDS")
 }
 
 fn container_id(info: &DeviceInformation) -> Option<GUID> {
@@ -127,6 +153,7 @@ pub fn find_sony_device() -> Option<SonyDevice> {
             } else if has_cached_service(&device, Generation::V1) {
                 Some(Generation::V1)
             } else {
+                // Windows has no cached service record for the device.
                 generation_from_name(&name)
             };
             let Some(generation) = generation else { continue };
@@ -150,29 +177,4 @@ pub fn find_sony_device() -> Option<SonyDevice> {
     };
     let pick = found.iter().position(|d| d.is_connected()).unwrap_or(0);
     (!found.is_empty()).then(|| found.swap_remove(pick))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn guesses_generation_only_for_sony_names() {
-        assert_eq!(generation_from_name("WH-1000XM3"), Some(Generation::V1));
-        assert_eq!(generation_from_name("LE_WH-1000XM3"), Some(Generation::V1));
-        assert_eq!(generation_from_name("WH-1000XM4"), Some(Generation::V1));
-        assert_eq!(generation_from_name("WF-1000XM4"), Some(Generation::V2));
-        assert_eq!(generation_from_name("WH-1000XM5"), Some(Generation::V2));
-        assert_eq!(generation_from_name("LinkBuds S"), Some(Generation::V2));
-        assert_eq!(generation_from_name("AirPods Pro"), None);
-        assert_eq!(generation_from_name("Logitech MX Keys"), None);
-    }
-
-    #[test]
-    fn knows_which_models_have_a_wind_mode() {
-        assert!(has_wind_mode("WH-1000XM3"));
-        assert!(!has_wind_mode("WH-1000XM4"));
-        assert!(is_earbuds("WF-1000XM3"));
-        assert!(!is_earbuds("WH-1000XM3"));
-    }
 }

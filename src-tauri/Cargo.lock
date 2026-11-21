@@ -2620,6 +2620,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ohc-core"
+version = "0.2.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2630,6 +2637,7 @@ name = "open-headphones-connect"
 version = "0.2.1"
 dependencies = [
  "fontdue",
+ "ohc-core",
  "serde",
  "serde_json",
  "tauri",

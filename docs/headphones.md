@@ -27,7 +27,7 @@ left, right and case batteries, and open earbuds without noise control get no no
 
 Everything else in the table rests on Sony's message tables as published in libmdr, and on
 replaying sessions recorded from real WF-1000XM5 and LinkBuds Clip earbuds
-(`src-tauri/src/protocol/fixtures/`). Of the twelve noise-control layouts Sony defines, the kind
+(`core/src/protocol/fixtures/`). Of the twelve noise-control layouts Sony defines, the kind
 the WH-1000XM5 and ULT WEAR use is confirmed on a real ULT WEAR; most of the others are
 implemented from the tables alone. The same goes for first-generation models with only noise cancelling or only
 ambient sound.

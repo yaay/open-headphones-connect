@@ -5,11 +5,12 @@
 pub mod bluetooth;
 pub mod flyout;
 pub mod logger;
-pub mod protocol;
-pub mod session;
 pub mod settings;
 pub mod startup;
 pub mod tray;
+
+// The protocol and the session are shared with the Mac app; see `core/`.
+pub use ohc_core::{protocol, session};
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -616,7 +617,7 @@ pub fn run() {
                     crate::log!("Demo mode: showing made-up {model} headphones");
                     session::spawn_demo(model, on_change)
                 }
-                None => session::spawn(on_change),
+                None => session::spawn(bluetooth::Windows, on_change),
             });
 
             if !launched_at_login {

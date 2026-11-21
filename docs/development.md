@@ -28,7 +28,8 @@ not own. Quit the running app first, then:
 Disconnect and Connect in the demo's panel replay the connect card.
 
 ```powershell
-cd src-tauri; cargo test --lib     # protocol, session, tray icon and settings tests
+cd core; cargo test                # protocol and session tests; these run on any system
+cd src-tauri; cargo test --lib     # tray icon, settings and app tests
 ```
 
 If your system drive is short of space, or the machine's Windows SDK is incomplete, dot-source
@@ -76,20 +77,29 @@ src/                    React UI
   Panel.tsx             tray panel: noise control, playback, equalizer, settings
   Headphones.tsx        flat drawing, used only where 3D is not available
   backend.ts            bridge to Rust, plus the browser simulator
-src-tauri/src/
-  protocol/framing.rs   packet framing, escaping, checksum
-  protocol/v1.rs        commands for the WH-1000XM3 generation
-  protocol/v2.rs        commands for the XM5 generation
-  protocol/fixtures/    recorded sessions of real headsets, replayed by the tests
+core/                   everything that is not tied to one operating system
+  src/protocol/framing.rs   packet framing, escaping, checksum
+  src/protocol/v1.rs        commands for the WH-1000XM3 generation
+  src/protocol/v2.rs        commands for the XM5 generation
+  src/protocol/fixtures/    recorded sessions of real headsets, replayed by the tests
+  src/session.rs            connection state machine
+  src/platform.rs           what the session needs from the system's Bluetooth
+  src/models.rs             what a headset's name alone tells
+  tests/                    the whole session run against a recorded WH-1000XM3
+src-tauri/src/          the Windows app
   bluetooth/mod.rs      finding the paired headset
   bluetooth/link.rs     the RFCOMM control socket
   bluetooth/probe.rs    the --probe diagnostic
   bluetooth/audio.rs    connect / disconnect audio
-  session.rs            connection state machine
   flyout.rs             window placement and slide-in
   tray.rs               tray icon drawing
   lib.rs                app wiring and commands
+macos/                  notes for the Mac app, which is not built yet
 ```
+
+`core` knows nothing about Windows. The session reaches the headset through three small traits
+in `core/src/platform.rs`, which the Windows app implements in `src-tauri/src/bluetooth/`.
+`core/tests/recorded_headset.rs` is the shortest complete example of them.
 
 ## Two things that cost time to find out
 
@@ -103,8 +113,8 @@ src-tauri/src/
 
 Reports from other headphone models come first: see [Supported headphones](headphones.md). For
 code, open an issue before a large change so the direction can be agreed; small fixes can go
-straight to a pull request. `cargo test --lib` and `npx tsc --noEmit` should pass, and the
-GitHub build runs both.
+straight to a pull request. The two test commands above and `npx tsc --noEmit` should pass; the
+GitHub build runs all three, and the `core` tests on macOS as well.
 
 ## Where the protocol knowledge comes from
 

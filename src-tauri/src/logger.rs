@@ -23,6 +23,8 @@ pub fn init(dir: &Path) {
         let _ = fs::rename(&path, dir.join("app.previous.log"));
     }
     let _ = LOG.set(Mutex::new(Log { path, file: None }));
+    // The shared protocol and session code logs to the same file.
+    ohc_core::logger::set_sink(write);
 }
 
 pub fn write(args: Arguments) {
