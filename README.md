@@ -35,9 +35,24 @@ in the notification area: left-click its icon for the panel, right-click to quit
 
 ## Supported headphones
 
-Tested on the **WH-1000XM3** only. Other models (WH-1000XM4 / XM5 / XM6, WF-1000XM4 / XM5,
-LinkBuds and more) are implemented from the protocol but have never been connected to this app,
-so expect rough edges. See [which models and how to report yours](docs/headphones.md).
+| Headphones | Status | Notes |
+| --- | --- | --- |
+| **WH-1000XM6** | ✅ Works | |
+| **WH-1000XM4** | ✅ Works | |
+| **WH-1000XM3** | ✅ Works | |
+| **ULT WEAR** | ⚠️ Mostly works | The equalizer and the touch panel switch do not work yet ([a user's report](https://github.com/yaay/open-headphones-connect/issues/1)) |
+| WH-1000XM5 | ❔ Untested | |
+| WH-1000XM2 | ❔ Untested | |
+| WF-1000XM5, WF-1000XM4, WF-1000XM3 | ❔ Untested | |
+| LinkBuds, LinkBuds S, Fit, Open, Clip | ❔ Untested | |
+| WH-CH720N, WH-XB900N | ❔ Untested | |
+| Headphones from other brands | ❌ Not supported | Sony headphones only |
+
+"Works" means everything in the list above: the connect card, battery, noise control, playback,
+the equalizer and the headphones' settings.
+
+Is yours untested? Try it anyway, then [tell us how it went](https://github.com/yaay/open-headphones-connect/issues/new?template=headphones-report.yml).
+That is how headphones move up this table.
 
 ## More
 
