@@ -32,7 +32,7 @@ const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
  * for the life of the app; the card borrows its canvas each time it appears.
  */
 interface Stage {
-  /** What it shows: a colour of the built-in model, or the user's own model. */
+  /** What it shows: a colour of the built-in model, or one of the user's own models. */
   key: string;
   canvas: HTMLCanvasElement;
   fit(width: number, height: number): void;
@@ -183,38 +183,48 @@ function createStage(key: string, look: Finish, model: HeadphoneModel, options: 
 }
 
 let stage: Stage | null = null;
-let building: { finish: Finish; done: Promise<Stage | null> } | null = null;
+let building: { finish: Finish; headset: string | null; done: Promise<Stage | null> } | null = null;
 let unavailable = false;
-let ownModel: Promise<CustomModel | null> | null = null;
+const ownModels = new Map<string, Promise<CustomModel | null>>();
 
-/** The user's own model is fetched once and reused. */
-function customModel(): Promise<CustomModel | null> {
-  ownModel ??= backend.getCustomModel().catch(() => null);
-  return ownModel;
+/** Which of the user's own models goes with a headset is looked up once. */
+function customModel(headset: string | null): Promise<CustomModel | null> {
+  const asked = headset ?? "";
+  let found = ownModels.get(asked);
+  if (!found) {
+    found = backend.findCustomModel(headset).catch(() => null);
+    ownModels.set(asked, found);
+  }
+  return found;
 }
 
-async function build(finish: Finish): Promise<Stage | null> {
-  let own = await customModel();
+async function build(finish: Finish, headset: string | null): Promise<Stage | null> {
+  let own = await customModel(headset);
+  const ownKey = own ? `own:${own.name ?? ""}` : "";
   let model: HeadphoneModel | null = null;
+  let size = 0;
   if (own) {
-    if (stage?.key === "own") return stage;
+    if (stage?.key === ownKey) return stage;
     try {
-      model = await loadHeadphones(own.bytes, own.settings);
+      const bytes = await backend.readCustomModel(own.name);
+      if (!bytes) throw new Error("the model file is empty or missing");
+      size = bytes.byteLength;
+      model = await loadHeadphones(bytes, own.settings);
     } catch (error) {
       // A file that cannot be read should not cost the user the whole card.
       console.error("The custom 3D model could not be loaded; using the built-in one", error);
-      ownModel = Promise.resolve(null);
+      ownModels.set(headset ?? "", Promise.resolve(null));
       own = null;
     }
   }
   if (!own && stage?.key === finish) return stage;
   try {
     const next = own
-      ? createStage("own", "black", model!, { brightness: own.settings.brightness, zoom: own.settings.scale })
+      ? createStage(ownKey, "black", model!, { brightness: own.settings.brightness, zoom: own.settings.scale })
       : createStage(finish, finish, buildHeadphones(finish));
     backend.note(
       own
-        ? `3D headphones: your own model (${Math.round(own.bytes.byteLength / 1024)} KB)`
+        ? `3D headphones: your own model${own.name ? ` for ${own.name}` : ""} (${Math.round(size / 1024)} KB)`
         : `3D headphones: built-in, ${finish}`,
     );
     stage?.dispose();
@@ -231,10 +241,16 @@ async function build(finish: Finish): Promise<Stage | null> {
  * Gets the 3D headphones ready and resolves once they can be shown (with null
  * if this machine cannot draw 3D). Called at startup so the first connect
  * card does not have to wait, and again by anything that needs the stage.
+ * `headset` is the model name of the connected headphones, which may have a
+ * 3D model of their own.
  */
-export function prepareHeadphones3D(finish: Finish): Promise<unknown> {
+export function prepareHeadphones3D(finish: Finish, headset: string | null = null): Promise<unknown> {
   if (unavailable) return Promise.resolve(null);
-  if (building?.finish !== finish) building = { finish, done: build(finish) };
+  if (building?.finish !== finish || building.headset !== headset) {
+    // One at a time: a second build must not start while the first still owns the stage.
+    const before = building?.done ?? Promise.resolve(null);
+    building = { finish, headset, done: before.then(() => build(finish, headset)) };
+  }
   return building.done;
 }
 
@@ -244,8 +260,12 @@ const portraits = new Map<string, string>();
  * A still picture of the headphones at rest, for places too small for the
  * live model. Null if this machine cannot draw 3D.
  */
-export async function headphonePortrait(finish: Finish, pixels: number): Promise<string | null> {
-  await prepareHeadphones3D(finish);
+export async function headphonePortrait(
+  finish: Finish,
+  pixels: number,
+  headset: string | null = null,
+): Promise<string | null> {
+  await prepareHeadphones3D(finish, headset);
   if (!stage) return null;
   const name = `${stage.key}@${pixels}`;
   let picture = portraits.get(name);
@@ -258,6 +278,8 @@ export async function headphonePortrait(finish: Finish, pixels: number): Promise
 
 interface Props {
   finish: Finish;
+  /** The model name of the connected headphones, which may have a 3D model of their own. */
+  headset?: string | null;
   /** Starts the entrance. Until then the first frame is held. */
   play: boolean;
   className?: string;
@@ -272,7 +294,7 @@ interface Props {
  * three-quarter view, then keep turning very slightly, as if on a display
  * stand.
  */
-export function Headphones3D({ finish, play, className, onUnavailable, fixedYaw }: Props) {
+export function Headphones3D({ finish, headset = null, play, className, onUnavailable, fixedYaw }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState<Stage | null>(null);
   const report = useRef(onUnavailable);
@@ -283,7 +305,7 @@ export function Headphones3D({ finish, play, className, onUnavailable, fixedYaw 
   useLayoutEffect(() => {
     let attached: Stage | null = null;
     let cancelled = false;
-    void prepareHeadphones3D(finish).then(() => {
+    void prepareHeadphones3D(finish, headset).then(() => {
       if (cancelled || !host.current) return;
       if (!stage) {
         report.current();
@@ -300,7 +322,7 @@ export function Headphones3D({ finish, play, className, onUnavailable, fixedYaw 
       attached?.canvas.remove();
       setShown(null);
     };
-  }, [finish, fixedYaw]);
+  }, [finish, headset, fixedYaw]);
 
   useEffect(() => {
     if (!play || !shown) return;

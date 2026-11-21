@@ -5,6 +5,7 @@ import { Headphones3D, prepareHeadphones3D } from "./Headphones3D";
 import { Panel } from "./Panel";
 import {
   EMPTY_SNAPSHOT,
+  headsetOf,
   type Accent,
   type SettingsView,
   type ShowRequest,
@@ -36,14 +37,19 @@ export function App() {
   // The nonce of the request the window is currently showing.
   const [shown, setShown] = useState<number | null>(null);
   const surface = useRef<HTMLDivElement>(null);
+  // What the card is about to show, for the effect that waits on its 3D model.
+  const shownOnCard = useRef<Snapshot>(EMPTY_SNAPSHOT);
 
   useEffect(() => {
-    backend.getState().then(setSnapshot);
-    backend.getSettings().then((loaded) => {
+    const state = backend.getState();
+    state.then(setSnapshot);
+    backend.getSettings().then(async (loaded) => {
       setSettings(loaded);
       // Get the 3D headphones ready before they are first needed. (Not in the
       // browser-only model viewer, which picks its own colour.)
-      if (!new URLSearchParams(location.search).has("model")) prepareHeadphones3D(loaded.finish);
+      if (!new URLSearchParams(location.search).has("model")) {
+        prepareHeadphones3D(loaded.finish, headsetOf(await state));
+      }
     });
     backend.getAccent().then(setAccent);
     const stops = [
@@ -74,7 +80,7 @@ export function App() {
     if (request.mode === "card") {
       // The card waits for its 3D headphones, but not for ever.
       const patience = new Promise((resolve) => setTimeout(resolve, 4000));
-      void Promise.race([prepareHeadphones3D(settings.finish), patience]).then(present);
+      void Promise.race([prepareHeadphones3D(settings.finish, headsetOf(shownOnCard.current)), patience]).then(present);
     } else {
       present();
     }
@@ -101,6 +107,7 @@ export function App() {
     ? ({ "--accent-on-dark": accent.onDark, "--accent-on-light": accent.onLight } as CSSProperties)
     : undefined;
   const cardSnapshot = request?.preview && snapshot.phase !== "connected" ? SAMPLE : snapshot;
+  shownOnCard.current = cardSnapshot;
 
   // Browser-only: `?model=black&yaw=-0.5` shows the 3D model large and still.
   const inspect = backend.simulated ? new URLSearchParams(location.search) : null;
@@ -111,6 +118,7 @@ export function App() {
         <Headphones3D
           className="inspect"
           finish={inspect.get("model") === "silver" ? "silver" : "black"}
+          headset={inspect.get("headset")}
           play
           fixedYaw={yaw === null ? undefined : Number(yaw)}
           onUnavailable={() => {}}

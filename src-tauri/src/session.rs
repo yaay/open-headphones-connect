@@ -726,7 +726,6 @@ impl Session {
     fn learn_extras_v1(&mut self, conn: &mut Conn, functions: &[u8]) -> LinkResult<()> {
         let has = |function: u8| functions.contains(&function);
 
-        self.send_optional(conn, &v1::get_model_name())?;
         self.send_optional(conn, &v1::get_series_and_colour())?;
         if has(v1::function::PLAYBACK_CONTROLLER) {
             self.snap.max_volume = v1::MAX_VOLUME;
@@ -764,7 +763,6 @@ impl Session {
     }
 
     fn learn_extras_v2(&mut self, conn: &mut Conn, caps: &v2::Capabilities) -> LinkResult<()> {
-        self.send_optional(conn, &v2::get_model_name())?;
         self.send_optional(conn, &v2::get_firmware_version())?;
         self.send_optional(conn, &v2::get_series_and_colour())?;
         if caps.alerts {
@@ -855,6 +853,9 @@ impl Session {
                     queries.push(v1::get_noise(kind));
                 }
                 if everything {
+                    // Asked this early because the connect card picks its 3D
+                    // model by it.
+                    queries.insert(0, v1::get_model_name());
                     if link.may_have(v1::function::PRESET_EQ)
                         || link.has(v1::function::PRESET_EQ_NONCUSTOMIZABLE)
                     {
@@ -872,6 +873,9 @@ impl Session {
                 if queries.is_empty() {
                     // Something has to be asked, if only to see that the link is alive.
                     queries.push(v2::get_protocol_info());
+                }
+                if everything {
+                    queries.insert(0, v2::get_model_name());
                 }
             }
         }

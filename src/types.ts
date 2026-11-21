@@ -128,8 +128,10 @@ export interface ModelSettings {
   cutout?: string[];
 }
 
+/** One of the user's own 3D models, before its file is read. */
 export interface CustomModel {
-  bytes: ArrayBuffer;
+  /** The headset it is for, or null for the one used for every headset. */
+  name: string | null;
   settings: ModelSettings;
 }
 
@@ -168,6 +170,14 @@ export const EMPTY_SNAPSHOT: Snapshot = {
   notice: null,
   connections: 0,
 };
+
+/**
+ * What to call the connected headphones when choosing a 3D model: the model
+ * name they report, or failing that the name Windows knows them by.
+ */
+export function headsetOf(snapshot: Snapshot): string | null {
+  return snapshot.model ?? snapshot.deviceName;
+}
 
 /** The battery to headline: the headset, or the weaker earbud. */
 export function headlineBattery(snapshot: Snapshot): Battery | null {

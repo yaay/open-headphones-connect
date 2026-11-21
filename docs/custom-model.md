@@ -30,6 +30,24 @@ replace it with any model of your own by placing two files in
 Restart the app after changing either file. The same model is used for the small picture in the
 panel header. The colour option in settings applies to the built-in model only.
 
+## A different model for each pair of headphones
+
+`model.glb` is shown for whatever connects. To give one model of headphones its own picture,
+add a `models` folder next to it and name the files after the headphones, exactly as the app
+shows their model name:
+
+```
+%AppData%\dev.openheadphonesconnect.desktop\
+  model.glb                  shown for everything else
+  model.json
+  models\
+    WH-1000XM5.glb           shown when a WH-1000XM5 connects
+    WH-1000XM5.json
+    WH-1000XM6.glb
+```
+
+A file in `models` wins over `model.glb`, and each can have its own `.json` beside it.
+
 A large model is worth slimming first, which also makes the card appear sooner:
 
 ```powershell
@@ -38,5 +56,5 @@ npx @gltf-transform/cli optimize in.gltf model.glb --compress meshopt --simplify
 
 The model is read from your settings folder at run time. It is never copied into the app or
 this repository, so what you use there is between you and the model's author: check its licence
-before sharing a build that depends on it. While developing, the same two files in `local/`
-(git-ignored) are picked up by `npm run dev` and `npm run app:dev`.
+before sharing a build that depends on it. While developing, the same files in `local/`
+(git-ignored), including `local/models/`, are picked up by `npm run dev` and `npm run app:dev`.

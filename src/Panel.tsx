@@ -11,6 +11,7 @@ import {
   SWITCH_INFO,
   frequencyLabel,
   headlineBattery,
+  headsetOf,
   type Battery,
   type EqState,
   type Finish,
@@ -109,7 +110,7 @@ function Header(props: { snapshot: Snapshot; finish: Finish; onOpenSettings: () 
 
   return (
     <header className="header">
-      <HeaderArt finish={props.finish} battery={headline} connected={connected} />
+      <HeaderArt finish={props.finish} headset={headsetOf(snapshot)} battery={headline} connected={connected} />
       <div className="header-text">
         <h1 className="header-name">{snapshot.deviceName ?? "Sony headphones"}</h1>
         <p className="header-status">{statusLine(snapshot)}</p>
@@ -135,18 +136,18 @@ const ART_PIXELS = 176;
  * The picture beside the name: a still of the same 3D model the connect card
  * uses. Falls back to the flat drawing where 3D is not available.
  */
-function HeaderArt(props: { finish: Finish; battery: Battery | null; connected: boolean }) {
+function HeaderArt(props: { finish: Finish; headset: string | null; battery: Battery | null; connected: boolean }) {
   // undefined: still rendering; null: 3D is not available.
   const [picture, setPicture] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     let current = true;
-    void headphonePortrait(props.finish, ART_PIXELS).then((made) => {
+    void headphonePortrait(props.finish, ART_PIXELS, props.headset).then((made) => {
       if (current) setPicture(made);
     });
     return () => {
       current = false;
     };
-  }, [props.finish]);
+  }, [props.finish, props.headset]);
 
   if (picture === null) {
     return (

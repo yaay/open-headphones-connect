@@ -370,24 +370,69 @@ fn open_bluetooth_settings() {
 /// headphones on the connect card with a 3D model of their own.
 const MODEL_FILE: &str = "model.glb";
 const MODEL_SETTINGS_FILE: &str = "model.json";
+/// Holds models for particular headsets, each named after its headset.
+const MODELS_DIR: &str = "models";
 
 /// The user's own 3D model, as raw bytes. Empty when there is none.
 #[tauri::command]
-fn custom_model(app: AppHandle) -> tauri::ipc::Response {
+fn custom_model(app: AppHandle, name: Option<String>) -> tauri::ipc::Response {
     let bytes = app
         .path()
         .app_config_dir()
         .ok()
-        .and_then(|dir| std::fs::read(dir.join(MODEL_FILE)).ok())
+        .and_then(|dir| model_path(&dir, name.as_deref()))
+        .and_then(|path| std::fs::read(path).ok())
         .unwrap_or_default();
     tauri::ipc::Response::new(bytes)
 }
 
-/// Optional notes on how that model should be turned and scaled.
+/// One of the user's own 3D models: `name` is the headset it is for, or
+/// `None` for the general one, and `settings` its optional placement notes.
+#[derive(Serialize, PartialEq, Debug)]
+struct ModelInfo {
+    name: Option<String>,
+    settings: Option<String>,
+}
+
+/// Which of the user's own models to show for `headset`, if any.
 #[tauri::command]
-fn custom_model_settings(app: AppHandle) -> Option<String> {
-    let dir = app.path().app_config_dir().ok()?;
-    std::fs::read_to_string(dir.join(MODEL_SETTINGS_FILE)).ok()
+fn custom_model_info(app: AppHandle, headset: Option<String>) -> Option<ModelInfo> {
+    find_model(&app.path().app_config_dir().ok()?, headset.as_deref())
+}
+
+/// A headset's model name as a file name: letters, digits, spaces, hyphens
+/// and underscores only, so that it cannot point outside the models folder.
+fn model_file_stem(headset: &str) -> Option<String> {
+    let stem: String = headset
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_'))
+        .collect();
+    let stem = stem.trim();
+    (!stem.is_empty() && stem.len() <= 64).then(|| stem.to_string())
+}
+
+/// Where a model lives: `models\<headset>.glb`, or `model.glb` for the
+/// general one.
+fn model_path(dir: &std::path::Path, name: Option<&str>) -> Option<PathBuf> {
+    match name {
+        Some(name) => Some(dir.join(MODELS_DIR).join(format!("{}.glb", model_file_stem(name)?))),
+        None => Some(dir.join(MODEL_FILE)),
+    }
+}
+
+/// A model named after the connected headset wins over the general one.
+fn find_model(dir: &std::path::Path, headset: Option<&str>) -> Option<ModelInfo> {
+    if let Some(stem) = headset.and_then(model_file_stem) {
+        let models = dir.join(MODELS_DIR);
+        if models.join(format!("{stem}.glb")).is_file() {
+            let settings = std::fs::read_to_string(models.join(format!("{stem}.json"))).ok();
+            return Some(ModelInfo { name: Some(stem), settings });
+        }
+    }
+    dir.join(MODEL_FILE).is_file().then(|| ModelInfo {
+        name: None,
+        settings: std::fs::read_to_string(dir.join(MODEL_SETTINGS_FILE)).ok(),
+    })
 }
 
 #[tauri::command]
@@ -522,7 +567,7 @@ pub fn run() {
             report_error,
             log_note,
             custom_model,
-            custom_model_settings,
+            custom_model_info,
             frontend_ready,
             present,
             resize,
@@ -614,6 +659,41 @@ mod tests {
     use super::*;
     use crate::protocol::Battery;
     use crate::session::Batteries;
+
+    #[test]
+    fn a_model_named_after_the_headset_wins_over_the_general_one() {
+        let dir = std::env::temp_dir().join(format!("ohc-models-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("models")).unwrap();
+        assert_eq!(find_model(&dir, Some("WH-1000XM5")), None);
+
+        std::fs::write(dir.join("model.glb"), b"general").unwrap();
+        std::fs::write(dir.join("model.json"), "{}").unwrap();
+        let general = Some(ModelInfo { name: None, settings: Some("{}".into()) });
+        assert_eq!(find_model(&dir, Some("WH-1000XM5")), general);
+        assert_eq!(find_model(&dir, None), general);
+
+        std::fs::write(dir.join("models").join("WH-1000XM5.glb"), b"xm5").unwrap();
+        assert_eq!(
+            find_model(&dir, Some("WH-1000XM5")),
+            Some(ModelInfo { name: Some("WH-1000XM5".into()), settings: None })
+        );
+        // Other headsets still get the general one.
+        assert_eq!(find_model(&dir, Some("WH-1000XM3")), general);
+        assert_eq!(model_path(&dir, Some("WH-1000XM5")), Some(dir.join("models").join("WH-1000XM5.glb")));
+        assert_eq!(model_path(&dir, None), Some(dir.join("model.glb")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_headset_name_cannot_reach_outside_the_models_folder() {
+        assert_eq!(model_file_stem("WH-1000XM5").as_deref(), Some("WH-1000XM5"));
+        assert_eq!(model_file_stem(" LinkBuds Clip ").as_deref(), Some("LinkBuds Clip"));
+        assert_eq!(model_file_stem("..\\..\\secrets").as_deref(), Some("secrets"));
+        assert_eq!(model_file_stem("../../x/y.glb").as_deref(), Some("xyglb"));
+        assert_eq!(model_file_stem("///"), None);
+        assert_eq!(model_file_stem(""), None);
+    }
 
     #[test]
     fn tooltip_summarises_a_connected_headset() {

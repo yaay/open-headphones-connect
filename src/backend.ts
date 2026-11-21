@@ -41,7 +41,9 @@ export interface Backend {
   /** Writes a line to the app's log file. */
   note(message: string): void;
   /** The user's own 3D model for the connect card, if they have added one. */
-  getCustomModel(): Promise<CustomModel | null>;
+  /** Which of the user's own 3D models to show for this headset, if any. */
+  findCustomModel(headset: string | null): Promise<CustomModel | null>;
+  readCustomModel(name: string | null): Promise<ArrayBuffer | null>;
   setNoise(mode: NoiseMode, ambientLevel: number, focusOnVoice: boolean): void;
   setEqPreset(preset: number): void;
   setEqBands(clearBass: number | null, bands: number[]): void;
@@ -96,10 +98,15 @@ const real: Backend = {
   setStartWithWindows: (enabled) => invoke("set_start_with_windows", { enabled }),
   getAccent: () => invoke("get_accent"),
   note: (message) => fire("log_note", { message }),
-  getCustomModel: async () => {
-    const bytes = await invoke<ArrayBuffer>("custom_model");
-    if (!bytes || bytes.byteLength === 0) return null;
-    return { bytes, settings: parseModelSettings(await invoke<string | null>("custom_model_settings")) };
+  findCustomModel: async (headset) => {
+    const found = await invoke<{ name: string | null; settings: string | null } | null>("custom_model_info", {
+      headset,
+    });
+    return found && { name: found.name, settings: parseModelSettings(found.settings) };
+  },
+  readCustomModel: async (name) => {
+    const bytes = await invoke<ArrayBuffer>("custom_model", { name });
+    return bytes && bytes.byteLength > 0 ? bytes : null;
   },
   setNoise: (mode, ambientLevel, focusOnVoice) => fire("set_noise", { mode, ambientLevel, focusOnVoice }),
   setEqPreset: (preset) => fire("set_eq_preset", { preset }),
@@ -205,6 +212,24 @@ const OPEN_EARBUDS: Snapshot = {
   canPowerOff: true,
 };
 
+// A newer over-ear model, to see the card with a model of its own.
+const NEWER_OVER_EAR: Snapshot = {
+  ...CONNECTED,
+  deviceName: "WH-1000XM5",
+  model: "WH-1000XM5",
+  noiseModes: ["noise_cancelling", "ambient", "off"],
+  switches: [
+    { id: "upscaling", on: true },
+    { id: "speak_to_chat", on: false },
+    { id: "pause_when_removed", on: true },
+    { id: "touch_panel", on: true },
+    { id: "multipoint", on: false },
+    { id: "voice_guidance", on: true },
+  ],
+  firmware: "2.3.1",
+  canPowerOff: true,
+};
+
 const PRESET_CURVES: Record<number, [number, number[]]> = {
   0x00: [0, [0, 0, 0, 0, 0]],
   0x10: [0, [0, 2, 4, 6, 8]],
@@ -263,6 +288,7 @@ function simulate(): Backend & { sim: Simulator } {
       show,
       connected: CONNECTED,
       models: [
+        ["XM5", NEWER_OVER_EAR],
         ["Earbuds", EARBUDS],
         ["Open earbuds", OPEN_EARBUDS],
       ],
@@ -286,14 +312,29 @@ function simulate(): Backend & { sim: Simulator } {
     },
     getAccent: async () => null,
     note: (message) => console.info(message),
-    // While developing, a model placed in `local/` is served at the site root.
-    getCustomModel: async () => {
+    // While developing, models placed in `local/` are served at the site
+    // root: `model.glb` for every headset, `models/<headset>.glb` for one.
+    findCustomModel: async (headset) => {
+      const served = async (path: string, kind: string) => {
+        try {
+          const reply = await fetch(path);
+          return reply.ok && (reply.headers.get("content-type") ?? "").includes(kind) ? reply : null;
+        } catch {
+          return null;
+        }
+      };
+      const stems = headset ? [`/models/${encodeURIComponent(headset)}`, "/model"] : ["/model"];
+      for (const stem of stems) {
+        if (!(await served(`${stem}.glb`, "gltf"))) continue;
+        const notes = await served(`${stem}.json`, "json");
+        return { name: stem === "/model" ? null : headset, settings: parseModelSettings(notes && (await notes.text())) };
+      }
+      return null;
+    },
+    readCustomModel: async (name) => {
       try {
-        const model = await fetch("/model.glb");
-        if (!model.ok || !(model.headers.get("content-type") ?? "").includes("gltf")) return null;
-        const notes = await fetch("/model.json");
-        const text = notes.ok && (notes.headers.get("content-type") ?? "").includes("json") ? await notes.text() : null;
-        return { bytes: await model.arrayBuffer(), settings: parseModelSettings(text) };
+        const reply = await fetch(name ? `/models/${encodeURIComponent(name)}.glb` : "/model.glb");
+        return reply.ok ? await reply.arrayBuffer() : null;
       } catch {
         return null;
       }

@@ -3,7 +3,7 @@ import { backend } from "./backend";
 import { BatteryGlyph, Glyph, IconButton } from "./controls";
 import { Headphones, useCountUp } from "./Headphones";
 import { Headphones3D } from "./Headphones3D";
-import { headlineBattery, type Finish, type Snapshot } from "./types";
+import { headlineBattery, headsetOf, type Finish, type Snapshot } from "./types";
 
 const STAY_MS = 7000;
 const LEAVE_MS = 160;
@@ -92,7 +92,13 @@ export function Card(props: { snapshot: Snapshot; finish: Finish; visible: boole
             entrance={visible}
           />
         ) : (
-          <Headphones3D className="card-model" finish={finish} play={visible} onUnavailable={() => setFlat(true)} />
+          <Headphones3D
+            className="card-model"
+            finish={finish}
+            headset={headsetOf(snapshot)}
+            play={visible}
+            onUnavailable={() => setFlat(true)}
+          />
         )}
         <div className="card-shadow" />
       </div>
