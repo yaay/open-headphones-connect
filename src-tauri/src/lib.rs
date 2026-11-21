@@ -8,6 +8,7 @@ pub mod logger;
 pub mod protocol;
 pub mod session;
 pub mod settings;
+pub mod startup;
 pub mod tray;
 
 use std::path::PathBuf;
@@ -20,7 +21,7 @@ use tauri::image::Image;
 use tauri::menu::MenuBuilder;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent};
-use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_notification::NotificationExt;
 use windows::UI::ViewManagement::{UIColorType, UISettings};
 
@@ -269,7 +270,7 @@ struct SettingsView {
 fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsView {
     SettingsView {
         settings: state.settings.lock().unwrap().clone(),
-        start_with_windows: app.autolaunch().is_enabled().unwrap_or(false),
+        start_with_windows: startup::is_enabled(&app),
         version: env!("CARGO_PKG_VERSION"),
     }
 }
@@ -282,9 +283,7 @@ fn update_settings(state: State<AppState>, settings: Settings) {
 
 #[tauri::command]
 fn set_start_with_windows(app: AppHandle, enabled: bool) -> Result<(), String> {
-    let launcher = app.autolaunch();
-    let result = if enabled { launcher.enable() } else { launcher.disable() };
-    result.map_err(|e| format!("Couldn't change the startup setting: {e}"))
+    startup::set(&app, enabled)
 }
 
 #[derive(Serialize)]
@@ -376,10 +375,7 @@ const MODELS_DIR: &str = "models";
 /// The user's own 3D model, as raw bytes. Empty when there is none.
 #[tauri::command]
 fn custom_model(app: AppHandle, name: Option<String>) -> tauri::ipc::Response {
-    let bytes = app
-        .path()
-        .app_config_dir()
-        .ok()
+    let bytes = startup::config_dir(&app)
         .and_then(|dir| model_path(&dir, name.as_deref()))
         .and_then(|path| std::fs::read(path).ok())
         .unwrap_or_default();
@@ -397,7 +393,7 @@ struct ModelInfo {
 /// Which of the user's own models to show for `headset`, if any.
 #[tauri::command]
 fn custom_model_info(app: AppHandle, headset: Option<String>) -> Option<ModelInfo> {
-    find_model(&app.path().app_config_dir().ok()?, headset.as_deref())
+    find_model(&startup::config_dir(&app)?, headset.as_deref())
 }
 
 /// A headset's model name as a file name: letters, digits, spaces, hyphens
@@ -539,7 +535,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
-    let launched_at_login = args.iter().any(|arg| arg == "--autostart");
+    let launched_at_login = startup::launched_at_login(&args);
     // `--demo [model]` shows made-up headphones instead of looking for real ones.
     let demo = args.iter().position(|arg| arg == "--demo").map(|at| {
         args.get(at + 1).filter(|name| !name.starts_with("--")).cloned().unwrap_or_else(|| "WH-1000XM5".into())
@@ -583,16 +579,14 @@ pub fn run() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
-            if let Ok(dir) = app.path().app_log_dir() {
+            if let Some(dir) = startup::log_dir(&handle) {
                 logger::init(&dir);
             }
             crate::log!("{APP_NAME} {} starting", env!("CARGO_PKG_VERSION"));
 
-            let settings_path = app
-                .path()
-                .app_config_dir()
+            let settings_path = startup::config_dir(&handle)
                 .map(|dir| dir.join("settings.json"))
-                .unwrap_or_else(|_| PathBuf::from("settings.json"));
+                .unwrap_or_else(|| PathBuf::from("settings.json"));
             app.manage(AppState {
                 snapshot: Mutex::new(Snapshot::default()),
                 settings: Mutex::new(Settings::load(&settings_path)),

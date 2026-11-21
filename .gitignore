@@ -15,3 +15,6 @@ local/
 # Icon sets for platforms this app does not target (regenerate with `tauri icon`).
 src-tauri/icons/android/
 src-tauri/icons/ios/
+
+# Your Microsoft Store identity (see packaging/store-identity.example.json).
+packaging/store-identity.json

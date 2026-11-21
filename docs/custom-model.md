@@ -19,6 +19,10 @@ either with any model of your own by placing two files in
 }
 ```
 
+If you installed the app from the Microsoft Store, the folder is
+`%LocalAppData%\Packages\17085Yehia.OpenHeadphonesConnect_86j4vst6mgpyr\LocalState\` instead,
+here and everywhere below.
+
 | Setting | What it does |
 | --- | --- |
 | `rotation` | Degrees about X, Y and Z, to stand the model upright facing the viewer |

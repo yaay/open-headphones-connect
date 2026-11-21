@@ -56,6 +56,10 @@ and attach a trace:
 3. Connect the headphones, try the controls that misbehave, then attach
    `%LocalAppData%\dev.openheadphonesconnect.desktop\logs\app.log`.
 
+With the Microsoft Store version, start it with
+`$env:OHC_TRACE = "1"; open-headphones-connect.exe` instead, and the log is
+`%LocalAppData%\Packages\17085Yehia.OpenHeadphonesConnect_86j4vst6mgpyr\LocalState\logs\app.log`.
+
 The trace holds every message exchanged with the headphones: the model name, firmware version
 and settings, and nothing about you or your PC. Messages the app does not understand are
 written to the same log even without tracing.

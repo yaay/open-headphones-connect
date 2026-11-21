@@ -34,6 +34,25 @@ cd src-tauri; cargo test --lib     # protocol, session, tray icon and settings t
 If your system drive is short of space, or the machine's Windows SDK is incomplete, dot-source
 `scripts\env.ps1` first; the comments at its top explain what it can do.
 
+## The Microsoft Store package
+
+The Store version is the same program inside an MSIX package:
+
+```powershell
+.\packaging\build-msix.ps1             # builds the app and the .msix to upload
+.\packaging\build-msix.ps1 -Register   # also installs it on this PC to try (needs Developer Mode)
+.\packaging\build-msix.ps1 -Unregister # removes that test install
+```
+
+The package is not signed; the Store signs it. Its identity comes from
+`packaging\store-identity.json` (git-ignored; copy `store-identity.example.json` and fill in the
+values from Partner Center > Product identity). Quit the ordinary app before trying the
+packaged one, as only one copy runs at a time.
+
+Two things differ inside the package, both in `src-tauri/src/startup.rs`: starting with Windows
+goes through a startup task declared in `packaging/AppxManifest.xml`, and settings, your own 3D
+models and the log live in `%LocalAppData%\Packages\<package family>\LocalState\`.
+
 ## Seeing what a headset says
 
 A debug build has a probe that asks every question directly and prints the raw answers:
