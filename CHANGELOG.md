@@ -2,7 +2,7 @@
 
 Notable changes to Open Headphones Connect, newest first.
 
-## Unreleased
+## 0.2.0 (2026-11-21)
 
 - The connect card shows a model of the headphones that are connected: the WH-1000XM5 and
   WH-1000XM6 get a realistic one ("Sony Wh-1000xm5" by Zalaneke, CC BY 4.0).

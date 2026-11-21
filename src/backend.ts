@@ -257,7 +257,7 @@ function simulate(): Backend & { sim: Simulator } {
     lowBatteryAlert: true,
     finish: "black",
     startWithWindows: false,
-    version: "0.1.0",
+    version: "0.2.0",
   };
   let nonce = 0;
   const stateHandlers = new Set<(s: Snapshot) => void>();

@@ -1,7 +1,7 @@
 {
   "name": "open-headphones-connect",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unofficial open-source companion for Sony headphones on Windows: connect card, battery, noise control and more",
   "license": "MIT",
   "homepage": "https://github.com/yaay/open-headphones-connect",
