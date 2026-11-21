@@ -2,7 +2,7 @@
 
 Notable changes to Open Headphones Connect, newest first.
 
-## Unreleased
+## 0.2.1 (2026-11-21)
 
 - ULT WEAR: the equalizer now works. Its messages carry an ULT mode that the app did not read, so
   it showed a single band and could not be changed ([#1](https://github.com/yaay/open-headphones-connect/issues/1)).

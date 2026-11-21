@@ -40,7 +40,7 @@ in the notification area: left-click its icon for the panel, right-click to quit
 | **WH-1000XM6** | ✅ Works | |
 | **WH-1000XM4** | ✅ Works | |
 | **WH-1000XM3** | ✅ Works | |
-| **ULT WEAR** | ⚠️ Mostly works | The equalizer and the touch panel switch do not work yet ([a user's report](https://github.com/yaay/open-headphones-connect/issues/1)) |
+| **ULT WEAR** | ⚠️ Mostly works | The equalizer and the touch panel switch are fixed in 0.2.1, not yet confirmed ([a user's report](https://github.com/yaay/open-headphones-connect/issues/1)) |
 | WH-1000XM5 | ❔ Untested | |
 | WH-1000XM2 | ❔ Untested | |
 | WF-1000XM5, WF-1000XM4, WF-1000XM3 | ❔ Untested | |

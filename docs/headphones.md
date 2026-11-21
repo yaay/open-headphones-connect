@@ -5,7 +5,7 @@
 | WH-1000XM3 | first generation | Tested (firmware 4.5.2) |
 | WH-1000XM4 | first generation | Tested |
 | WH-1000XM6 | second generation | Tested |
-| ULT WEAR (WH-ULT900N) | second generation | [Reported by a user](https://github.com/yaay/open-headphones-connect/issues/1) on firmware 2.1.0: works, except the equalizer and the touch panel switch |
+| ULT WEAR (WH-ULT900N) | second generation | [Reported by a user](https://github.com/yaay/open-headphones-connect/issues/1) on firmware 2.1.0: works; the equalizer and the touch panel switch are fixed in 0.2.1, not yet confirmed |
 | WH-1000XM2, WF-1000XM3, WH-H900N, WH-XB900N | first generation | Same command table as the WH-1000XM3, not tried yet |
 | WF-1000XM5, LinkBuds Clip | second generation | Reading checked against recordings of real units, not tried yet |
 | WH-1000XM5, WF-1000XM4, other LinkBuds, WH-CH720N | second generation | Same command tables, not tried yet |
@@ -17,11 +17,13 @@ left, right and case batteries, and open earbuds without noise control get no no
 
 - **WH-1000XM3, WH-1000XM4 and WH-1000XM6:** tested by the maintainer and working: the connect
   card, battery, noise control, playback, the equalizer and the headphone settings.
-- **ULT WEAR:** one user's report. The connect card, battery, noise control with ambient level
-  and focus on voice, playback and connect / disconnect all work. The equalizer shows a single
-  band and cannot be changed, because this model's equalizer messages carry an extra field the
-  app does not read yet. The touch panel switch has no effect, because the headphones ask for
-  confirmation and the app declines. DSEE could not be confirmed either way.
+- **ULT WEAR:** one user's report on version 0.2.0. The connect card, battery, noise control
+  with ambient level and focus on voice, playback and connect / disconnect all worked. The
+  equalizer showed a single band and could not be changed, because this model's equalizer
+  messages carry an ULT mode the app did not read. The touch panel switch had no effect, because
+  the headphones ask for confirmation and the app declined. Both are fixed in 0.2.1 from the
+  report's trace, and wait for someone with the headphones to confirm. DSEE could not be
+  confirmed either way.
 
 Everything else in the table rests on Sony's message tables as published in libmdr, and on
 replaying sessions recorded from real WF-1000XM5 and LinkBuds Clip earbuds

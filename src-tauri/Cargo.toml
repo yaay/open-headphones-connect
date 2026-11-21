@@ -1,6 +1,6 @@
 [package]
 name = "open-headphones-connect"
-version = "0.2.0"
+version = "0.2.1"
 description = "Unofficial companion for Sony headphones on Windows"
 authors = ["Open Headphones Connect contributors"]
 edition = "2021"
