@@ -54,6 +54,8 @@ const POWER_SWITCH_OFF: u8 = 0x03;
 const POWER_AUTO_OFF: u8 = 0x04;
 const POWER_AUTO_OFF_WEARING: u8 = 0x05;
 const EQ_PRESET: u8 = 0x00;
+/// The equalizer variant of headsets with an ULT button (ULT WEAR).
+const EQ_ULT_MODE: u8 = 0x03;
 const NOISE_BUTTON_TOGGLE: u8 = 0x30;
 const ALERT_FIXED_MESSAGE: u8 = 0x00;
 const ALERT_POSITIVE_NEGATIVE: u8 = 0x01;
@@ -324,6 +326,11 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
+    /// Whether equalizer messages carry an ULT mode (see [`EqLayout::ult_mode`]).
+    pub fn eq_has_ult_mode(&self) -> bool {
+        self.eq == Some(EQ_ULT_MODE)
+    }
+
     /// `table1` and `table2` are the function ids each table listed.
     ///
     /// A headset that listed nothing at all is treated as the most common
@@ -464,6 +471,9 @@ pub struct EqLayout {
     pub steps: u8,
     /// How many of the values are frequency bands. 0 = not said.
     pub frequencies: u8,
+    /// Headsets with an ULT button put the ULT mode (0 off, 1, 2) between the
+    /// preset and the values, in what they send and in what they expect.
+    pub ult_mode: bool,
 }
 
 impl EqLayout {
@@ -488,6 +498,42 @@ impl EqLayout {
         }
     }
 
+    /// Splits a message body into the preset, the ULT mode and the values.
+    fn split<'a>(&self, body: &'a [u8]) -> Option<(u8, u8, &'a [u8])> {
+        let (preset, rest) = body.split_first()?;
+        let (ult, rest) = if self.ult_mode {
+            let (ult, rest) = rest.split_first()?;
+            (*ult, rest)
+        } else {
+            (0, rest)
+        };
+        let (count, values) = rest.split_first()?;
+        Some((*preset, ult, values.get(..*count as usize)?))
+    }
+
+    /// Reads an equalizer message body (see [`Event::EqRaw`]).
+    pub fn read(&self, body: &[u8]) -> Option<EqState> {
+        let (preset, _, values) = self.split(body)?;
+        Some(self.decode(preset, values))
+    }
+
+    /// The start of a message that sets the equalizer. The ULT mode is not
+    /// this app's to change, so it goes back as the headset last reported it.
+    fn begin(&self, preset: u8, last: Option<&[u8]>) -> Vec<u8> {
+        let mut out = vec![0x58, EQ_PRESET, preset];
+        if self.ult_mode {
+            out.push(last.and_then(|body| self.split(body)).map_or(0, |(_, ult, _)| ult));
+        }
+        out
+    }
+
+    /// Selects a preset. `last` is the headset's most recent equalizer message.
+    pub fn write_preset(&self, preset: u8, last: Option<&[u8]>) -> Vec<u8> {
+        let mut out = self.begin(preset, last);
+        out.push(0x00);
+        out
+    }
+
     pub fn decode(&self, preset: u8, raw: &[u8]) -> EqState {
         let offset = self.offset(raw.len()) as i16;
         let user = |value: &u8| (*value as i16 - offset).clamp(-offset, offset) as i8;
@@ -500,14 +546,16 @@ impl EqLayout {
         }
     }
 
-    pub fn encode(&self, preset: u8, clear_bass: Option<i8>, bands: &[i8]) -> Option<Vec<u8>> {
+    /// Sets the sliders. `last` is the headset's most recent equalizer message.
+    pub fn encode(&self, preset: u8, clear_bass: Option<i8>, bands: &[i8], last: Option<&[u8]>) -> Option<Vec<u8>> {
         let count = bands.len() + clear_bass.is_some() as usize;
         if bands.is_empty() || count > 16 {
             return None;
         }
         let offset = self.offset(count) as i16;
         let raw = |value: i8| ((value as i16).clamp(-offset, offset) + offset) as u8;
-        let mut out = vec![0x58, EQ_PRESET, preset, count as u8];
+        let mut out = self.begin(preset, last);
+        out.push(count as u8);
         out.extend(clear_bass.map(raw));
         out.extend(bands.iter().map(|band| raw(*band)));
         Some(out)
@@ -527,10 +575,6 @@ pub fn get_eq_frequencies() -> Vec<u8> {
 
 pub fn get_eq() -> Vec<u8> {
     vec![0x56, EQ_PRESET]
-}
-
-pub fn set_eq_preset(preset: u8) -> Vec<u8> {
-    vec![0x58, EQ_PRESET, preset, 0x00]
 }
 
 // ----- playback ---------------------------------------------------------------
@@ -768,26 +812,30 @@ fn parse_auto_power_off(p: &[u8]) -> Option<Event> {
 }
 
 // [cmd, variant, values, steps, count, (presetId, nameLen, name…)…]
+// The ULT variant has one more byte before the count: how many extra steps
+// its second ULT mode adds.
 fn parse_eq_layout(p: &[u8]) -> Option<Event> {
     if p.len() < 5 || p[1] > 0x04 {
         return None;
     }
+    let count_at = if p[1] == EQ_ULT_MODE { 5 } else { 4 };
     let mut presets = Vec::new();
-    let mut at = 5;
-    for _ in 0..p[4] {
+    let mut at = count_at + 1;
+    for _ in 0..*p.get(count_at)? {
         presets.push(*p.get(at)?);
         at = text(p, at + 1)?.1;
     }
     Some(Event::EqLayout { values: p[2], steps: p[3], presets })
 }
 
-// [cmd, variant, preset, count, value…]
+// [cmd, variant, preset, count, value…], or on headsets with an ULT button
+// [cmd, variant, preset, ultMode, count, value…]. Which one cannot be told
+// from the message, so it is passed on whole for `EqLayout::read`.
 fn parse_eq(p: &[u8]) -> Option<Event> {
     if p.len() < 4 || p[1] != EQ_PRESET {
         return None;
     }
-    let values = p.get(4..4 + p[3] as usize)?.to_vec();
-    Some(Event::EqRaw { preset: p[2], values })
+    Some(Event::EqRaw(p[2..].to_vec()))
 }
 
 // [cmd, variant, count, (unit, value ×2)…] with unit 1 = Hz, 2 = kHz
@@ -1064,26 +1112,110 @@ mod tests {
     #[test]
     fn equalizer_values_follow_the_headsets_own_scale() {
         // Ten bands of 13 positions: −6…+6.
-        let ten = EqLayout { values: 10, steps: 13, frequencies: 10 };
+        let ten = EqLayout { values: 10, steps: 13, frequencies: 10, ult_mode: false };
         let state = ten.decode(0xA0, &[6, 6, 6, 6, 6, 6, 6, 6, 6, 12]);
         assert_eq!(state.clear_bass, None);
         assert_eq!(state.bands, [0, 0, 0, 0, 0, 0, 0, 0, 0, 6]);
         assert_eq!(state.range, 6);
-        assert_eq!(ten.encode(0xA0, None, &[0; 10]).unwrap()[..5], [0x58, 0x00, 0xA0, 0x0A, 6]);
+        assert_eq!(ten.encode(0xA0, None, &[0; 10], None).unwrap()[..5], [0x58, 0x00, 0xA0, 0x0A, 6]);
+        assert_eq!(ten.write_preset(0x31, None), [0x58, 0x00, 0x31, 0x00]);
+        assert_eq!(ten.read(&[0xA0, 10, 6, 6, 6, 6, 6, 6, 6, 6, 6, 12]), Some(state.clone()));
         // Nothing said: six values are Clear Bass and five bands at −10…+10.
         let unknown = EqLayout::default();
         let state = unknown.decode(0xA0, &[20, 11, 10, 13, 9, 12]);
         assert_eq!((state.clear_bass, state.bands.as_slice(), state.range), (Some(10), &[1, 0, 3, -1, 2][..], 10));
         assert_eq!(
-            unknown.encode(0xA0, Some(2), &[0, 1, 2, 3, 4]).unwrap(),
+            unknown.encode(0xA0, Some(2), &[0, 1, 2, 3, 4], None).unwrap(),
             [0x58, 0x00, 0xA0, 0x06, 12, 10, 11, 12, 13, 14]
         );
         // Five frequencies and six values: the first value is Clear Bass.
-        let six = EqLayout { values: 6, steps: 21, frequencies: 5 };
+        let six = EqLayout { values: 6, steps: 21, frequencies: 5, ult_mode: false };
         assert_eq!(six.decode(0x00, &[10; 6]).clear_bass, Some(0));
         // Out-of-range values are pulled in rather than wrapped.
-        assert_eq!(ten.encode(0xA0, None, &[99, -99, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap()[4..6], [12, 0]);
-        assert!(ten.encode(0xA0, None, &[]).is_none());
+        assert_eq!(ten.encode(0xA0, None, &[99, -99, 0, 0, 0, 0, 0, 0, 0, 0], None).unwrap()[4..6], [12, 0]);
+        assert!(ten.encode(0xA0, None, &[], None).is_none());
+        // A message cut short is not read at all.
+        assert_eq!(ten.read(&[0xA0, 10, 6, 6]), None);
+    }
+
+    // What a real ULT WEAR (WH-ULT900N, firmware 2.1.0) sent, from the trace
+    // in a user's report: github.com/yaay/open-headphones-connect/issues/1
+    const ULT_WEAR_FUNCTIONS: [u8; 30] = [
+        0x10, 0x12, 0x13, 0x14, 0x15, 0x20, 0x23, 0x25, 0x27, 0x32, 0x53, 0x69, 0x6B, 0x70, 0x93, 0xF4, 0x90,
+        0xA1, 0xF1, 0xB2, 0xB7, 0xC1, 0xC2, 0xD1, 0xD2, 0xD3, 0xE3, 0xE2, 0xF9, 0xFD,
+    ];
+
+    #[test]
+    fn reads_what_a_real_ult_wear_offers() {
+        let caps = Capabilities::resolve(&ULT_WEAR_FUNCTIONS, &[0x42, 0x50, 0xF2]);
+        assert_eq!(caps.noise.map(|n| n.kind), Some(0x17));
+        assert_eq!(caps.battery_inquiries, [0x00]);
+        assert_eq!(caps.eq, Some(0x03));
+        assert!(caps.eq_has_ult_mode());
+        assert!(caps.power_off && caps.playback && caps.upscaling && caps.pause_when_removed && caps.alerts);
+        assert_eq!(caps.auto_power_off, Some(0x05));
+        assert_eq!(caps.speak_to_chat, None);
+        assert_eq!(caps.general_settings, [0xD1, 0xD2, 0xD3]);
+        assert_eq!(caps.voice_guidance, Some(0x01));
+        // An XM5 has the plain equalizer.
+        assert!(!Capabilities::resolve(&[0x50, 0x6B], &[]).eq_has_ult_mode());
+
+        assert_eq!(parse(T1, &[0x67, 0x17, 0x01, 0x01, 0x00, 0x00, 0x14])[0], Event::Noise(noise(NoiseMode::NoiseCancelling, 20, false)));
+        assert_eq!(parse(T1, &[0x21, 0x05, 0x02, 0x10, 0x11]), [Event::AutoPowerOffOptions(vec![0x10, 0x11])]);
+        // Flipping the touch panel switch makes it ask whether to go ahead.
+        assert_eq!(parse(T1, &[0x99, 0x00, 0x0B, 0x01]), [Event::Alert { message: 0x0B, wants_choice: true }]);
+        let mut touch = vec![0xD1, 0xD2, 0x00, 0x01, 0x13];
+        touch.extend(b"TOUCH_PANEL_SETTING");
+        touch.push(0x00);
+        assert_eq!(
+            parse(T1, &touch),
+            [Event::GeneralSettingInfo { slot: 0xD2, name: "TOUCH_PANEL_SETTING".into(), boolean: true }]
+        );
+    }
+
+    #[test]
+    fn the_ult_wear_equalizer_carries_an_ult_mode() {
+        // Six values of 21 positions, one more byte, then twelve presets.
+        let described = [
+            0x51, 0x03, 0x06, 0x15, 0x0A, 0x0C, 0x00, 0x00, 0x10, 0x00, 0x11, 0x00, 0x12, 0x00, 0x13, 0x00, 0x14,
+            0x00, 0x15, 0x00, 0x16, 0x00, 0x17, 0x00, 0xA0, 0x00, 0xA1, 0x00, 0xA2, 0x00,
+        ];
+        assert_eq!(
+            parse(T1, &described),
+            [Event::EqLayout {
+                values: 6,
+                steps: 21,
+                presets: vec![0x00, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0xA0, 0xA1, 0xA2]
+            }]
+        );
+        // Clear Bass comes first and has no frequency.
+        let frequencies = [
+            0x5B, 0x00, 0x06, 0x10, 0x00, 0x01, 0x01, 0x01, 0x90, 0x01, 0x03, 0xE8, 0x01, 0x09, 0xC4, 0x01, 0x18,
+            0x9C, 0x01, 0x3E, 0x80,
+        ];
+        assert_eq!(parse(T1, &frequencies), [Event::EqFrequencies(vec![400, 1000, 2500, 6300, 16000])]);
+
+        // [preset Custom 1, ULT mode 1, six values]
+        let body = vec![0xA1, 0x01, 0x06, 0x0A, 0x0A, 0x0D, 0x10, 0x0C, 0x0A];
+        assert_eq!(parse(T1, &[&[0x57, 0x00][..], &body].concat()), [Event::EqRaw(body.clone())]);
+
+        let layout = EqLayout { values: 6, steps: 21, frequencies: 5, ult_mode: true };
+        assert_eq!(
+            layout.read(&body),
+            Some(EqState { preset: 0xA1, clear_bass: Some(0), bands: vec![0, 3, 6, 2, 0], range: 10 })
+        );
+        // Read without knowing about the ULT mode, the same message shows one
+        // band, which is what the report described.
+        let plain = EqLayout { ult_mode: false, ..layout.clone() };
+        assert_eq!(plain.read(&body).map(|eq| eq.bands.len() + eq.clear_bass.is_some() as usize), Some(1));
+
+        // What is sent keeps the ULT mode the headset is in.
+        assert_eq!(layout.write_preset(0x10, Some(&body)), [0x58, 0x00, 0x10, 0x01, 0x00]);
+        assert_eq!(layout.write_preset(0x10, None), [0x58, 0x00, 0x10, 0x00, 0x00]);
+        assert_eq!(
+            layout.encode(0xA1, Some(2), &[0, 3, 6, 2, -10], Some(&body)).unwrap(),
+            [0x58, 0x00, 0xA1, 0x01, 0x06, 12, 10, 13, 16, 12, 0]
+        );
     }
 
     #[test]
@@ -1174,7 +1306,7 @@ mod tests {
         assert!(has(Event::Battery(BatterySlot::Left, None)));
         assert!(has(Event::Battery(BatterySlot::Right, Some(Battery { level: 100, charging: false }))));
         assert!(has(Event::Battery(BatterySlot::Case, Some(Battery { level: 53, charging: false }))));
-        assert!(has(Event::EqRaw { preset: 0xA0, values: vec![20, 11, 10, 13, 9, 12] }));
+        assert!(has(Event::EqRaw(vec![0xA0, 6, 20, 11, 10, 13, 9, 12])));
         assert!(has(Event::Volume(12)));
         assert!(has(Event::Playback(Playback::Paused)));
         assert!(has(Event::AutoPowerOff(0x10)));
@@ -1213,7 +1345,7 @@ mod tests {
             steps: 13,
             presets: vec![0x00, 0x30, 0x31, 0x32, 0x33, 0xA0, 0xA1, 0xA2]
         }));
-        assert!(has(Event::EqRaw { preset: 0x00, values: vec![6; 10] }));
+        assert!(has(Event::EqRaw(vec![0x00, 10, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6])));
         assert!(has(Event::Volume(30)));
         assert!(has(Event::GeneralSettingInfo { slot: 0xD2, name: "MULTIPOINT_SETTING".into(), boolean: true }));
         // Tap sensitivity is a list of choices, not a switch.

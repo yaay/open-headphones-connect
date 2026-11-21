@@ -2,6 +2,13 @@
 
 Notable changes to Open Headphones Connect, newest first.
 
+## Unreleased
+
+- ULT WEAR: the equalizer now works. Its messages carry an ULT mode that the app did not read, so
+  it showed a single band and could not be changed ([#1](https://github.com/yaay/open-headphones-connect/issues/1)).
+- ULT WEAR and other newer models: the touch panel switch now takes effect. The headphones ask
+  for confirmation before changing it, and the app used to answer no.
+
 ## 0.2.0 (2026-11-21)
 
 - The connect card shows a model of the headphones that are connected: the WH-1000XM5 and

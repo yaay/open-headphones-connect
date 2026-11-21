@@ -140,9 +140,11 @@ pub enum Event {
     NoiseRaw(Vec<u8>),
     NoiseCapability(NoiseCapability),
     Eq(EqState),
-    /// Equalizer values still on the headset's own scale, which only
-    /// [`Event::EqLayout`] explains.
-    EqRaw { preset: u8, values: Vec<u8> },
+    /// An equalizer message as received, minus its two header bytes: the
+    /// preset, on some headsets an ULT mode, then the values on the
+    /// headset's own scale. Only what the headset says about its equalizer
+    /// ([`Event::EqLayout`], its function list) explains how to read it.
+    EqRaw(Vec<u8>),
     EqLayout { values: u8, steps: u8, presets: Vec<u8> },
     /// The frequency of each band, in hertz.
     EqFrequencies(Vec<u32>),

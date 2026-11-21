@@ -397,8 +397,8 @@ struct V2Link {
     /// The last noise-control message received: the next change starts from it.
     noise_raw: Option<Vec<u8>>,
     eq_layout: v2::EqLayout,
-    /// The last equalizer values received, on the headset's own scale.
-    eq_raw: Option<(u8, Vec<u8>)>,
+    /// The last equalizer message received, on the headset's own scale.
+    eq_raw: Option<Vec<u8>>,
     voice_language: Option<u8>,
 }
 
@@ -424,6 +424,17 @@ struct Conn {
     /// General settings the headset has described so far.
     described: Vec<u8>,
     dialect: Dialect,
+}
+
+/// Whether flipping this switch is something the headset will ask about, and
+/// that a "yes" should follow.
+///
+/// Second-generation headsets ask "this needs a reconnect, go ahead?" for the
+/// touch panel and for multipoint, and drop the change if the answer is no: a
+/// real ULT WEAR did exactly that. The WH-1000XM3 asks too but applies the
+/// change even after a no, without reconnecting, so it keeps getting a no.
+fn asks_before_obeying(second_generation: bool, id: Switch) -> bool {
+    second_generation || id == Switch::Multipoint
 }
 
 /// The message that flips `id`, and the frame type it travels in. `None`
@@ -809,7 +820,8 @@ impl Session {
         self.snap.max_ambient_level = if levels { v2::MAX_AMBIENT_LEVEL } else { 0 };
         self.snap.focus_on_voice_available = caps.noise.is_some_and(|layout| layout.has_voice_focus());
         self.snap.can_power_off = caps.power_off;
-        conn.dialect = Dialect::V2(V2Link { caps, ..V2Link::default() });
+        let eq_layout = v2::EqLayout { ult_mode: caps.eq_has_ult_mode(), ..v2::EqLayout::default() };
+        conn.dialect = Dialect::V2(V2Link { caps, eq_layout, ..V2Link::default() });
         Ok(())
     }
 
@@ -1041,7 +1053,9 @@ impl Session {
             Command::SetEqPreset(preset) if self.snap.eq.is_some() => {
                 let (set, get) = match &conn.dialect {
                     Dialect::V1(_) => (v1::set_eq_preset(preset), v1::get_eq()),
-                    Dialect::V2(_) => (v2::set_eq_preset(preset), v2::get_eq()),
+                    Dialect::V2(link) => {
+                        (link.eq_layout.write_preset(preset, link.eq_raw.as_deref()), v2::get_eq())
+                    }
                 };
                 if let Some(eq) = self.snap.eq.as_mut() {
                     eq.preset = preset;
@@ -1065,7 +1079,12 @@ impl Session {
                         }
                         v1::set_eq_bands(clear_bass.unwrap_or(0), &five)
                     }
-                    Dialect::V2(link) => match link.eq_layout.encode(preset, clear_bass, &bands) {
+                    Dialect::V2(link) => match link.eq_layout.encode(
+                        preset,
+                        clear_bass,
+                        &bands,
+                        link.eq_raw.as_deref(),
+                    ) {
                         Some(payload) => payload,
                         None => return Ok(true),
                     },
@@ -1101,9 +1120,8 @@ impl Session {
             }
             Command::SetSwitch(id, on) if self.snap.switch(id).is_some() => {
                 let Some((kind, payload)) = switch_command(conn, id, on) else { return Ok(true) };
-                if id == Switch::Multipoint {
-                    // The headset asks before it reconnects for this one, and
-                    // the user has just said what they want.
+                if asks_before_obeying(matches!(conn.dialect, Dialect::V2(_)), id) {
+                    // The user has just said what they want.
                     self.consent_until = Some(Instant::now() + CONSENT_WINDOW);
                 }
                 self.snap.set_switch(id, on);
@@ -1159,8 +1177,10 @@ impl Session {
 
     /// Shows the equalizer as last received, read with the layout known now.
     fn show_eq(&mut self, conn: &Conn) {
-        if let Dialect::V2(V2Link { eq_layout, eq_raw: Some((preset, values)), .. }) = &conn.dialect {
-            self.snap.eq = Some(eq_layout.decode(*preset, values));
+        if let Dialect::V2(V2Link { eq_layout, eq_raw: Some(body), .. }) = &conn.dialect {
+            if let Some(eq) = eq_layout.read(body) {
+                self.snap.eq = Some(eq);
+            }
         }
     }
 
@@ -1227,9 +1247,9 @@ impl Session {
                 }
                 self.snap.eq = Some(eq);
             }
-            Event::EqRaw { preset, values } => {
+            Event::EqRaw(body) => {
                 if let Dialect::V2(link) = &mut conn.dialect {
-                    link.eq_raw = Some((preset, values));
+                    link.eq_raw = Some(body);
                 }
                 self.show_eq(conn);
             }
@@ -1289,10 +1309,8 @@ impl Session {
             Event::Alert { message, wants_choice } => {
                 // The headset waits for an answer. A plain notice is
                 // acknowledged. A yes/no question gets a yes only when it
-                // follows a switch the user has just flipped knowing it brings
-                // a reconnect. Anything else is declined, after which the XM3
-                // (its questions come with the touch panel and the equalizer)
-                // applies the change anyway without dropping the connection.
+                // follows a switch the user has just flipped (see
+                // `asks_before_obeying`). Anything else is declined.
                 let agreed = self.consent_until.take().is_some_and(|until| Instant::now() < until);
                 let yes = !wants_choice || agreed;
                 crate::log!(
@@ -1516,6 +1534,16 @@ mod tests {
         // Earbuds get a battery each and a case.
         let buds = demo_snapshot("WF-1000XM5", 1);
         assert!(buds.battery.single.is_none() && buds.battery.left.is_some() && buds.battery.case.is_some());
+    }
+
+    #[test]
+    fn a_question_after_a_switch_is_answered_yes_where_a_no_would_undo_it() {
+        // Second generation: any switch the user flips.
+        assert!(asks_before_obeying(true, Switch::TouchPanel));
+        assert!(asks_before_obeying(true, Switch::Multipoint));
+        // WH-1000XM3 generation: only multipoint, which cannot change without a reconnect.
+        assert!(!asks_before_obeying(false, Switch::TouchPanel));
+        assert!(asks_before_obeying(false, Switch::Multipoint));
     }
 
     #[test]
