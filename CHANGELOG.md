@@ -2,6 +2,14 @@
 
 Notable changes to Open Headphones Connect, newest first.
 
+## Unreleased
+
+- The connect card shows a model of the headphones that are connected: the WH-1000XM5 and
+  WH-1000XM6 get a realistic one ("Sony Wh-1000xm5" by Zalaneke, CC BY 4.0).
+- Your own 3D models can be per headphone model: a file named after the headphones in a
+  `models` folder wins over the general `model.glb`.
+- Demo mode: `--demo WH-1000XM5` shows made-up headphones of any model, without Bluetooth.
+
 ## 0.1.0 (2026-11-21)
 
 The first public release.

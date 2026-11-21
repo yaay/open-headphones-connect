@@ -14,8 +14,18 @@ npm run app:dev          # run with live reload
 npm run app:build        # release build and installer
 ```
 
-`npm run dev` on its own opens the UI in a browser with simulated headphones (an XM3, earbuds,
-and open earbuds without noise control), which is the quick way to work on the design.
+`npm run dev` on its own opens the UI in a browser with simulated headphones (an XM3, an XM5,
+earbuds, and open earbuds without noise control), which is the quick way to work on the design.
+
+The built app has a demo mode too. It shows made-up headphones of whatever model you name,
+without touching Bluetooth, so you can see the connect card and the panel for headphones you do
+not own. Quit the running app first, then:
+
+```powershell
+& "$env:LOCALAPPDATA\Open Headphones Connect\open-headphones-connect.exe" --demo WH-1000XM5
+```
+
+Disconnect and Connect in the demo's panel replay the connect card.
 
 ```powershell
 cd src-tauri; cargo test --lib     # protocol, session, tray icon and settings tests
@@ -89,5 +99,14 @@ GitHub build runs both.
   voice guidance, and the recorded WH-1000XM3, WF-1000XM5 and LinkBuds Clip sessions that the
   tests replay.
 
-The headphones on the connect card are a 3D model generated in code (`src/headphoneModel.ts`),
-proportioned against photos of the WH-1000XM3; no product images and no logos are bundled.
+## The 3D models
+
+- Most headphones get a model generated in code (`src/headphoneModel.ts`), proportioned against
+  photos of the WH-1000XM3. It carries no logo.
+- The WH-1000XM5 and WH-1000XM6 get [Sony Wh-1000xm5](https://sketchfab.com/3d-models/sony-wh-1000xm5-5d8aea0a780b49fa89c9c205912414e3)
+  by Zalaneke, used under CC BY 4.0, converted to glTF with its materials adjusted
+  (`src/assets/models/`, listed in `src/bundledModels.ts`). To add a model for other headphones,
+  it must come with a licence that allows redistribution; add the file and an entry there, and
+  credit its author in `LICENSE`.
+
+No product photographs are bundled.

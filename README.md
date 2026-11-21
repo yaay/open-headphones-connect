@@ -24,7 +24,8 @@ in the notification area: left-click its icon for the panel, right-click to quit
 
 ## What it does
 
-- **Connect card** with a 3D model, battery level and noise mode whenever the headphones connect
+- **Connect card** with a 3D model of your headphones, battery level and noise mode whenever
+  they connect
 - **Battery** in the tray icon, with a notification when it runs low
 - **Noise control**: noise cancelling, wind noise reduction, ambient sound
 - **Playback**: volume, play / pause, skip
@@ -50,7 +51,9 @@ so expect rough edges. See [which models and how to report yours](docs/headphone
 Built on the protocol work of [SonyHeadphonesClient](https://github.com/Plutoberth/SonyHeadphonesClient)
 by Plutoberth, [Sony Tray](https://github.com/abhiinhii/sony-tray) by abhiinhii, and
 [SonyHeadphonesClient](https://github.com/mos9527/SonyHeadphonesClient) by mos9527, Amr Satrio
-and contributors.
+and contributors. The WH-1000XM5 on the connect card is the 3D model
+[Sony Wh-1000xm5](https://sketchfab.com/3d-models/sony-wh-1000xm5-5d8aea0a780b49fa89c9c205912414e3) by Zalaneke, used under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
-MIT licensed; see [LICENSE](LICENSE). Sony and its product names are trademarks of Sony Group
+MIT licensed, apart from that model; see [LICENSE](LICENSE). Sony and its product names are trademarks of Sony Group
 Corporation, used here only to say what this software works with.

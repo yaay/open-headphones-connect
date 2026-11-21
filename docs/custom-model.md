@@ -1,7 +1,8 @@
 # Your own 3D model on the connect card
 
-The connect card shows a built-in 3D model, generated in code and deliberately plain. You can
-replace it with any model of your own by placing two files in
+The connect card shows a 3D model of the headphones. A few models of headphones have one made
+for them that ships with the app; the rest get a plain one generated in code. You can replace
+either with any model of your own by placing two files in
 `%AppData%\dev.openheadphonesconnect.desktop\`:
 
 - `model.glb`: the model, as binary glTF (Meshopt compression and WebP textures are supported).
@@ -46,7 +47,12 @@ shows their model name:
     WH-1000XM6.glb
 ```
 
-A file in `models` wins over `model.glb`, and each can have its own `.json` beside it.
+Each file can have its own `.json` beside it. The most specific model wins:
+
+1. your file in `models` named after the connected headphones,
+2. the model the app ships for those headphones, if it has one,
+3. your `model.glb`,
+4. the generated model.
 
 A large model is worth slimming first, which also makes the card appear sooner:
 

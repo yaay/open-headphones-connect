@@ -2,8 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { backend } from "./backend";
+import { bundledModelFor } from "./bundledModels";
 import { buildHeadphones, loadHeadphones, type HeadphoneModel } from "./headphoneModel";
-import type { CustomModel, Finish } from "./types";
+import type { CustomModel, Finish, ModelSettings } from "./types";
 
 /** How long the spin-in takes before the model settles into its resting pose. */
 export const SETTLE_MS = 1700;
@@ -198,34 +199,71 @@ function customModel(headset: string | null): Promise<CustomModel | null> {
   return found;
 }
 
+/** A model that comes from a file: one of the user's own, or one that ships with the app. */
+interface ModelFile {
+  key: string;
+  label: string;
+  settings: ModelSettings;
+  read(): Promise<ArrayBuffer>;
+}
+
+/**
+ * Which model file to show for a headset, most specific first: the user's
+ * own model for exactly these headphones, then the app's model for them, then
+ * the user's model for everything. Null means the generated model.
+ */
+async function modelFile(headset: string | null): Promise<ModelFile | null> {
+  const own = await customModel(headset);
+  const ownFile = (found: CustomModel): ModelFile => ({
+    key: `own:${found.name ?? ""}`,
+    label: `your own model${found.name ? ` for ${found.name}` : ""}`,
+    settings: found.settings,
+    read: async () => {
+      const bytes = await backend.readCustomModel(found.name);
+      if (!bytes) throw new Error("the model file is empty or missing");
+      return bytes;
+    },
+  });
+  if (own?.name) return ownFile(own);
+  const bundled = bundledModelFor(headset);
+  if (bundled) {
+    return {
+      key: `app:${bundled.key}`,
+      label: `the app's ${bundled.key} model`,
+      settings: bundled.settings,
+      read: async () => {
+        const reply = await fetch(bundled.url);
+        if (!reply.ok) throw new Error(`could not read ${bundled.url}`);
+        return reply.arrayBuffer();
+      },
+    };
+  }
+  return own ? ownFile(own) : null;
+}
+
 async function build(finish: Finish, headset: string | null): Promise<Stage | null> {
-  let own = await customModel(headset);
-  const ownKey = own ? `own:${own.name ?? ""}` : "";
+  let file = await modelFile(headset);
   let model: HeadphoneModel | null = null;
   let size = 0;
-  if (own) {
-    if (stage?.key === ownKey) return stage;
+  if (file) {
+    if (stage?.key === file.key) return stage;
     try {
-      const bytes = await backend.readCustomModel(own.name);
-      if (!bytes) throw new Error("the model file is empty or missing");
+      const bytes = await file.read();
       size = bytes.byteLength;
-      model = await loadHeadphones(bytes, own.settings);
+      model = await loadHeadphones(bytes, file.settings);
     } catch (error) {
       // A file that cannot be read should not cost the user the whole card.
-      console.error("The custom 3D model could not be loaded; using the built-in one", error);
-      ownModels.set(headset ?? "", Promise.resolve(null));
-      own = null;
+      console.error(`${file.label} could not be loaded; using the generated one`, error);
+      file = null;
     }
   }
-  if (!own && stage?.key === finish) return stage;
+  if (!file && stage?.key === finish) return stage;
   try {
-    const next = own
-      ? createStage(ownKey, "black", model!, { brightness: own.settings.brightness, zoom: own.settings.scale })
+    const next = file
+      ? createStage(file.key, "black", model!, { brightness: file.settings.brightness, zoom: file.settings.scale })
       : createStage(finish, finish, buildHeadphones(finish));
     backend.note(
-      own
-        ? `3D headphones: your own model${own.name ? ` for ${own.name}` : ""} (${Math.round(size / 1024)} KB)`
-        : `3D headphones: built-in, ${finish}`,
+      file ? `3D headphones: ${file.label} (${Math.round(size / 1024)} KB)` : `3D headphones: built-in, ${finish}`,
     );
     stage?.dispose();
     stage = next;

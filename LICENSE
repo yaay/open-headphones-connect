@@ -27,3 +27,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+3D model of the WH-1000XM5
+
+The model shown for WH-1000XM5 and WH-1000XM6 headphones
+(src/assets/models/wh-1000xm5.glb) is "Sony Wh-1000xm5" by Zalaneke
+(https://sketchfab.com/Zalanekee), published at
+https://sketchfab.com/3d-models/sony-wh-1000xm5-5d8aea0a780b49fa89c9c205912414e3
+and licensed under Creative Commons Attribution 4.0 International
+(https://creativecommons.org/licenses/by/4.0/). It was converted to glTF and
+its materials were adjusted for this app. It is not covered by the MIT License
+above; the Creative Commons licence applies to it instead.

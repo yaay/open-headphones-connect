@@ -245,6 +245,110 @@ pub fn spawn(on_change: impl Fn(&Snapshot) + Send + 'static) -> Handle {
     handle
 }
 
+/// Starts a made-up headset of the given model instead of looking for a real
+/// one, for trying the app without headphones (`--demo WH-1000XM5`). Nothing
+/// here touches Bluetooth; the controls change the made-up state.
+pub fn spawn_demo(model: String, on_change: impl Fn(&Snapshot) + Send + 'static) -> Handle {
+    let (tx, rx) = mpsc::channel();
+    let handle = Handle { tx };
+    thread::Builder::new()
+        .name("demo-session".into())
+        .spawn(move || {
+            let mut snap = demo_snapshot(&model, 1);
+            on_change(&Snapshot {
+                phase: Phase::Connecting,
+                device_name: Some(model.clone()),
+                ..Snapshot::default()
+            });
+            // As long as a real headset takes to answer.
+            thread::sleep(Duration::from_millis(900));
+            on_change(&snap);
+            for message in rx {
+                if let Msg::Command(command) = message {
+                    apply_demo(&mut snap, &model, command);
+                    on_change(&snap);
+                }
+            }
+        })
+        .expect("failed to start the demo session thread");
+    handle
+}
+
+fn demo_snapshot(model: &str, connections: u64) -> Snapshot {
+    let battery = |level| Some(Battery { level, charging: false });
+    let mut snap = Snapshot {
+        phase: Phase::Connected,
+        device_name: Some(model.into()),
+        model: Some(model.into()),
+        battery: if bluetooth::is_earbuds(model) {
+            Batteries { left: battery(90), right: battery(100), case: battery(60), ..Batteries::default() }
+        } else {
+            Batteries { single: battery(80), ..Batteries::default() }
+        },
+        noise: Some(NoiseState { mode: NoiseMode::NoiseCancelling, ambient_level: 12, focus_on_voice: false }),
+        noise_modes: vec![NoiseMode::NoiseCancelling, NoiseMode::Ambient, NoiseMode::Off],
+        min_ambient_level: 1,
+        max_ambient_level: 20,
+        focus_on_voice_available: true,
+        eq: Some(EqState { preset: 0x00, clear_bass: Some(0), bands: vec![0; 5], range: 10 }),
+        firmware: Some("demo".into()),
+        codec: Some("LDAC".into()),
+        can_power_off: true,
+        volume: Some(21),
+        max_volume: 30,
+        playback: Some(Playback::Paused),
+        auto_power_off: Some(0x00),
+        auto_power_off_options: vec![0x00, 0x01, 0x02, 0x03, 0x11],
+        connections,
+        ..Snapshot::default()
+    };
+    for (id, on) in [
+        (Switch::Upscaling, true),
+        (Switch::SpeakToChat, false),
+        (Switch::TouchPanel, true),
+        (Switch::VoiceGuidance, true),
+    ] {
+        snap.set_switch(id, on);
+    }
+    snap
+}
+
+fn apply_demo(snap: &mut Snapshot, model: &str, command: Command) {
+    let connected = snap.phase == Phase::Connected;
+    match command {
+        Command::Connect if !connected => *snap = demo_snapshot(model, snap.connections + 1),
+        Command::Disconnect | Command::PowerOff if connected => {
+            *snap = Snapshot {
+                phase: Phase::Disconnected,
+                device_name: Some(model.into()),
+                connections: snap.connections,
+                ..Snapshot::default()
+            };
+        }
+        _ if !connected => {}
+        Command::SetNoise(state) => snap.noise = Some(state),
+        Command::SetEqPreset(preset) => {
+            if let Some(eq) = snap.eq.as_mut() {
+                eq.preset = preset;
+            }
+        }
+        Command::SetEqBands { clear_bass, bands } => {
+            if let Some(eq) = snap.eq.as_mut() {
+                eq.preset = EQ_MANUAL;
+                eq.clear_bass = clear_bass;
+                eq.bands = bands;
+            }
+        }
+        Command::SetVolume(volume) => snap.volume = Some(volume.min(snap.max_volume)),
+        Command::Transport(Transport::Play) => snap.playback = Some(Playback::Playing),
+        Command::Transport(Transport::Pause) => snap.playback = Some(Playback::Paused),
+        Command::SetSwitch(id, on) => snap.set_switch(id, on),
+        Command::SetAutoPowerOff(choice) => snap.auto_power_off = Some(choice),
+        Command::Transport(_) | Command::AnswerAlert { .. } | Command::Connect => {}
+        Command::Disconnect | Command::PowerOff => {}
+    }
+}
+
 enum LinkError {
     /// The socket is gone; the reason is for the log.
     Closed(String),
@@ -1388,6 +1492,30 @@ mod tests {
         let json = serde_json::to_value(&snap).unwrap();
         assert_eq!(json["switches"][1], serde_json::json!({ "id": "multipoint", "on": true }));
         assert_eq!(json["switches"][0]["id"], "upscaling");
+    }
+
+    #[test]
+    fn the_demo_headset_obeys_the_controls_and_reconnects() {
+        let mut snap = demo_snapshot("WH-1000XM5", 1);
+        assert_eq!((snap.phase, snap.model.as_deref(), snap.connections), (Phase::Connected, Some("WH-1000XM5"), 1));
+        assert!(snap.battery.single.is_some() && snap.battery.left.is_none());
+        apply_demo(&mut snap, "WH-1000XM5", Command::SetVolume(99));
+        apply_demo(&mut snap, "WH-1000XM5", Command::SetSwitch(Switch::SpeakToChat, true));
+        assert_eq!(snap.volume, Some(30));
+        assert_eq!(snap.switch(Switch::SpeakToChat), Some(true));
+
+        apply_demo(&mut snap, "WH-1000XM5", Command::Disconnect);
+        assert_eq!((snap.phase, snap.noise, snap.connections), (Phase::Disconnected, None, 1));
+        // Nothing but Connect means anything while disconnected.
+        apply_demo(&mut snap, "WH-1000XM5", Command::SetVolume(5));
+        assert_eq!(snap.volume, None);
+        // Connecting again counts as a fresh connection, so the card shows again.
+        apply_demo(&mut snap, "WH-1000XM5", Command::Connect);
+        assert_eq!((snap.phase, snap.connections), (Phase::Connected, 2));
+
+        // Earbuds get a battery each and a case.
+        let buds = demo_snapshot("WF-1000XM5", 1);
+        assert!(buds.battery.single.is_none() && buds.battery.left.is_some() && buds.battery.case.is_some());
     }
 
     #[test]

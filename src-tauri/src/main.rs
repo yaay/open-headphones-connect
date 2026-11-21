@@ -4,6 +4,7 @@
 fn main() {
     // `--probe` prints what the headset reports and changes nothing.
     // `--probe-write` also re-sends the noise mode it is already in.
+    // (`--demo [model]`, handled by the app itself, shows made-up headphones.)
     let has = |flag: &str| std::env::args().any(|arg| arg == flag);
     if has("--probe") || has("--probe-write") {
         open_headphones_connect_lib::bluetooth::probe::run(has("--probe-write"));

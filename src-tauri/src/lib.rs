@@ -538,7 +538,12 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn run() {
-    let launched_at_login = std::env::args().any(|arg| arg == "--autostart");
+    let args: Vec<String> = std::env::args().collect();
+    let launched_at_login = args.iter().any(|arg| arg == "--autostart");
+    // `--demo [model]` shows made-up headphones instead of looking for real ones.
+    let demo = args.iter().position(|arg| arg == "--demo").map(|at| {
+        args.get(at + 1).filter(|name| !name.starts_with("--")).cloned().unwrap_or_else(|| "WH-1000XM5".into())
+    });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -611,7 +616,14 @@ pub fn run() {
             build_tray(&handle)?;
 
             let for_session = handle.clone();
-            app.manage(session::spawn(move |snapshot| on_snapshot(&for_session, snapshot)));
+            let on_change = move |snapshot: &Snapshot| on_snapshot(&for_session, snapshot);
+            app.manage(match demo {
+                Some(model) => {
+                    crate::log!("Demo mode: showing made-up {model} headphones");
+                    session::spawn_demo(model, on_change)
+                }
+                None => session::spawn(on_change),
+            });
 
             if !launched_at_login {
                 request_show(&handle, Mode::Panel, false);
