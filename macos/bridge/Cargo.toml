@@ -1,0 +1,16 @@
+[package]
+name = "ohc-bridge"
+version = "0.2.1"
+description = "The shared session behind a C interface, for the Mac app's Swift"
+authors = ["Open Headphones Connect contributors"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/yaay/open-headphones-connect"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+ohc-core = { path = "../../core" }
+serde_json = "1"

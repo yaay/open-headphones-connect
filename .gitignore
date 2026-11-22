@@ -19,3 +19,7 @@ src-tauri/icons/ios/
 
 # Your Microsoft Store identity (see packaging/store-identity.example.json).
 packaging/store-identity.json
+
+# The Mac bridge (see macos/README.md).
+macos/bridge/target/
+macos/build/

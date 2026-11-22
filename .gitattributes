@@ -4,5 +4,6 @@
 *.ico binary
 *.icns binary
 *.glb binary
+*.usdz binary
 *.webp binary
 *.mp4 binary
