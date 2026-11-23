@@ -1,10 +1,12 @@
 # The Mac app
 
 A first version of the app exists: the menu-bar item, its panel and the connect card, on top
-of a bridge that puts the shared session behind Swift. Packaging is still to come. This page
-records what has been decided and what is known, so the work can go on without repeating the
-research. Only what [The probe](#the-probe), [The bridge](#the-bridge),
-[The panel](#the-panel) and [The card](#the-card) say has been tried on macOS.
+of a bridge that puts the shared session behind Swift, and a script that packages it for other
+people's Macs. This page records what has been decided and what is known, so the work can go
+on without repeating the research. Only what [The probe](#the-probe),
+[The bridge](#the-bridge), [The panel](#the-panel), [The card](#the-card),
+[Packaging](#packaging) and [The Mac App Store](#the-mac-app-store) say has been tried on
+macOS.
 
 ## What it should be
 
@@ -56,7 +58,7 @@ Classic Bluetooth serial channels go through IOBluetooth, as both existing Mac c
 
 A sensible order: a command-line probe that opens the channel and prints the reply to one
 question (done); then the bridge (done); then the menu-bar panel (a first version); then the
-card and its model (a first version); then packaging.
+card and its model (a first version); then packaging (done, without notarisation).
 Without an Apple Developer ID the app cannot be notarised, and people who download it have to
 allow it by hand in System Settings.
 
@@ -169,11 +171,15 @@ while it is dragged and the headset otherwise.
 Drawn with `--render` from a real WH-1000XM3, the panel shows that headset's four noise modes,
 equalizer, three switches and automatic power-off, and its controls work on that headset.
 
+When the user has refused the app Bluetooth, the session cannot tell: it sees Bluetooth as
+off, or nothing paired. The panel asks `CBCentralManager.authorization` instead and says so,
+with a button to the right page of System Settings. That screen has only been drawn
+(`--render FILE refused`), not met.
+
 Left out on purpose: volume and playback, which a Mac has its own controls for. Not there yet:
 
 - The settings page (start at login, the connect card's switch, the low-battery warning).
 - A picture of the headphones in the header, which has a symbol for now.
-- Saying so when Bluetooth permission was refused. The panel then reads as Bluetooth being off.
 - At first launch the menu-bar item does not respond until the permission question is
   answered: the first IOBluetooth call happens on the main thread.
 
@@ -218,6 +224,109 @@ Not there yet:
 - The switch for the card in settings, and `register(forConnectNotifications:)`: the card
   follows the session, which notices a headset a second or two after macOS does.
 - The battery counting up, and the text rising in.
+
+## Packaging
+
+```sh
+macos/run.sh package
+```
+
+builds the app optimised, for Apple silicon and Intel in one file, with its icon, the model
+and the licence inside, and puts it in `macos/build/Open-Headphones-Connect-<version>.dmg`
+beside a shortcut to Applications. The version is the one in `package.json`, so the usual
+version change covers the Mac app too. It needs Rust and Xcode's command-line tools, and
+fetches Rust's Intel half the first time.
+
+The app is signed ad hoc and with the hardened runtime, which Apple asks for before it will
+notarise anything. It is not notarised, so whoever downloads it meets what the Windows
+installer meets with SmartScreen. On first opening, macOS says it cannot check the app; they
+then go to System Settings > Privacy & Security, scroll to the message about Open Headphones
+Connect, and choose Open Anyway. After that macOS asks once whether it may use Bluetooth.
+
+Found while building it:
+
+- Bluetooth needs no entitlement under the hardened runtime. The packaged app, started that
+  way, connected to a WH-1000XM3 and showed its panel.
+- Only one copy at a time can hold the headset's control channel. A second one finds the
+  headset and then stays at "Connecting…" until the first is quit.
+- Because the signature is ad hoc, macOS takes each new version for a new app and asks for
+  Bluetooth again after an update.
+
+Not tried:
+
+- The Intel half. It is built, and the build checks that it compiles, but there was no Intel
+  Mac or Rosetta to run it on.
+- Opening a downloaded copy on another Mac. The steps above are what macOS is known to do
+  with an app that is not notarised, not something watched here; here `spctl` rejects it.
+- Notarising, which takes away the Open Anyway step. It needs the paid Apple Developer
+  Program, and on the Mac that builds: a Developer ID Application certificate (Xcode >
+  Settings > Accounts > Manage Certificates), and Apple's password for the notary service
+  stored once with `xcrun notarytool store-credentials ohc-notary`. Then
+
+  ```sh
+  SIGN="Developer ID Application" NOTARY=ohc-notary macos/run.sh package
+  ```
+
+  signs the app and the disk image, sends the image to Apple, waits, and staples the answer
+  to it.
+
+Not there yet: starting at login, which belongs with the settings page.
+
+## The Mac App Store
+
+```sh
+macos/run.sh store
+```
+
+builds the same universal app sandboxed, which the store insists on, and puts it in the
+installer package the store takes, `macos/build/Open-Headphones-Connect-<version>.pkg`. As it
+stands that is for trying: signed ad hoc, it cannot be uploaded. For the store it wants three
+things from the paid Apple Developer Program, none of which belongs in this repository:
+
+```sh
+SIGN="Apple Distribution" INSTALLER="3rd Party Mac Developer Installer" \
+    PROFILE=~/Downloads/OpenHeadphonesConnect.provisionprofile BUILD=2 macos/run.sh store
+```
+
+- `SIGN` and `INSTALLER` are the two certificates (Xcode > Settings > Accounts > Manage
+  Certificates: Apple Distribution, and Mac Installer Distribution).
+- `PROFILE` is a Mac App Store Connect provisioning profile for the app's identifier,
+  `dev.openheadphonesconnect.desktop`, made at developer.apple.com once the identifier is
+  registered there. It is copied into the app, and the app and team identifiers in it go
+  into the entitlements. Without one the store still takes the app, but TestFlight does not.
+- `BUILD` is the build number, which has to go up with every upload of the same version.
+
+The package then goes up with Apple's Transporter app, to an app record made in App Store
+Connect.
+
+Tried, with a WH-1000XM3:
+
+- The sandboxed app needs two entitlements and no more: `com.apple.security.app-sandbox` and
+  `com.apple.security.device.bluetooth`. Signed with those it finds the headset, opens the
+  control channel and shows its panel, as it does outside the sandbox.
+- Disconnect and Connect work from inside the sandbox (tried with the session tool).
+- The package holds the app intact: expanded again, its signature verifies.
+- `Info.plist` has the category and the export-compliance answer the store asks for, and the
+  icon has every size.
+
+- Signed for the store with the two certificates and a Mac App Store Connect profile, the
+  build goes through: the app carries the profile and the four entitlements, both signatures
+  verify, and the package is signed by the installer certificate.
+
+- The first upload was turned down (error 91109): the profile, downloaded with a browser, had
+  macOS's quarantine mark on it, and its copy in the app kept the mark. The build now takes
+  such marks off everything in the app before signing.
+
+  The second upload, through Apple's Transporter app, went through.
+
+Not tried: review.
+
+Two things review is likely to raise:
+
+- Reviewers have no Sony headphones, and without any the app shows only "Not paired yet".
+  The usual answer is a screen recording of it at work, in the notes for the reviewer.
+- Whether an unofficial app for Sony's headphones, with their name in its listing, is
+  acceptable (guideline 5.2) is Apple's call and not predictable from here.
 
 ## Prior work
 

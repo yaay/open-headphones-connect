@@ -1,22 +1,35 @@
 // The panel that opens from the menu bar: the Mac counterpart of src/Panel.tsx.
 
 import AppKit
+import CoreBluetooth
 import SwiftUI
 
 struct Panel: View {
     let headset: Headset
+    /// Whether the user has said no to Bluetooth for this app. The session cannot tell that
+    /// from Bluetooth being off, or from there being nothing paired.
+    var refused = Panel.bluetoothRefused
+
+    static var bluetoothRefused: Bool {
+        [.denied, .restricted].contains(CBCentralManager.authorization)
+    }
 
     var body: some View {
         let snapshot = headset.snapshot
         VStack(alignment: .leading, spacing: 14) {
-            Header(snapshot: snapshot)
+            Header(snapshot: snapshot, refused: refused)
             if let notice = snapshot.notice {
                 Label(notice, systemImage: "info.circle")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            switch snapshot.phase {
+            switch refused ? nil : snapshot.phase {
+            case nil:
+                Prompt(
+                    text: "Open Headphones Connect is not allowed to use Bluetooth, so it cannot see your headphones. Allow it under Privacy & Security, then quit and open it again.",
+                    button: "Open Bluetooth privacy settings",
+                    action: { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth")!) })
             case .starting, .connecting:
                 EmptyView()
             case .bluetoothOff:
@@ -40,7 +53,7 @@ struct Panel: View {
             }
             Divider()
             HStack {
-                if snapshot.phase == .connected {
+                if snapshot.phase == .connected && !refused {
                     Button("Disconnect", action: headset.disconnect).disabled(snapshot.pending != nil)
                     if snapshot.canPowerOff {
                         Button("Power off", systemImage: "power", action: headset.powerOff)
@@ -61,18 +74,19 @@ struct Panel: View {
 
 private struct Header: View {
     let snapshot: Snapshot
+    let refused: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "headphones")
                 .font(.system(size: 30))
-                .foregroundStyle(snapshot.phase == .connected ? .primary : .tertiary)
+                .foregroundStyle(snapshot.phase == .connected && !refused ? .primary : .tertiary)
                 .frame(width: 40, height: 40)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(snapshot.deviceName ?? "Sony headphones").font(.headline)
                 Text(status).foregroundStyle(.secondary)
-                if snapshot.phase == .connected {
+                if snapshot.phase == .connected && !refused {
                     HStack(spacing: 8) {
                         battery(snapshot.battery.single, nil)
                         battery(snapshot.battery.left, "L")
@@ -85,13 +99,14 @@ private struct Header: View {
                 }
             }
             Spacer()
-            if snapshot.phase == .connecting || snapshot.phase == .starting || snapshot.pending != nil {
+            if !refused && (snapshot.phase == .connecting || snapshot.phase == .starting || snapshot.pending != nil) {
                 ProgressView().controlSize(.small).accessibilityLabel("Working")
             }
         }
     }
 
     private var status: String {
+        if refused { return "Not allowed to use Bluetooth" }
         if snapshot.pending == "connecting_audio" { return "Connecting…" }
         if snapshot.pending == "disconnecting" { return "Disconnecting…" }
         switch snapshot.phase {

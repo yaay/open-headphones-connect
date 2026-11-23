@@ -4,8 +4,12 @@
 //     macos/run.sh app                              # with your headphones
 //     macos/run.sh app --demo WH-1000XM5            # with made-up ones; Bluetooth is left alone.
 //                                                   # Disconnect and Connect replay the card.
-//     macos/run.sh app --demo WF-1000XM5 --render panel.png [card] [dark]
-//                                                   # a picture of the panel or the card, then quit
+//     macos/run.sh app --demo WF-1000XM5 --render panel.png [card] [dark] [refused] [--scale 4]
+//                                                   # a picture of the panel or the card, then quit;
+//                                                   # `refused` as if Bluetooth were not allowed,
+//                                                   # `--scale` for more pixels than the screen's 2
+//     … --render panel.png --send '{"set_eq_preset": 16}'
+//                                                   # after that command, or several, has been sent
 
 import AppKit
 import RealityKit
@@ -29,9 +33,14 @@ enum Main {
             for _ in 0..<(demo == nil ? 60 : 15) {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.1))
             }
+            for (at, argument) in arguments.enumerated() where argument == "--send" && at + 1 < arguments.count {
+                HeadsetSession.send(arguments[at + 1])
+                RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            }
             let card = arguments.contains("card")
-            render(card ? AnyView(CardView(headset: headset)) : AnyView(Panel(headset: headset).background(Color(nsColor: .windowBackgroundColor))),
-                   to: picture, dark: arguments.contains("dark"))
+            let refused = Panel.bluetoothRefused || arguments.contains("refused")
+            render(card ? AnyView(CardView(headset: headset)) : AnyView(Panel(headset: headset, refused: refused).background(Color(nsColor: .windowBackgroundColor))),
+                   to: picture, dark: arguments.contains("dark"), scale: value(after: "--scale").flatMap(Int.init) ?? 2)
         } else {
             headset.onConnect = { Card.show(headset) }
             headset.start(demo: demo)
@@ -41,7 +50,7 @@ enum Main {
 
     /// Draws a view, with everything in it opened up, into a PNG file: a look at it without a
     /// screen, and without a headset when it is a made-up one.
-    private static func render(_ content: AnyView, to path: String, dark: Bool) {
+    private static func render(_ content: AnyView, to path: String, dark: Bool, scale: Int) {
         UserDefaults.standard.register(defaults: ["eq-open": true, "headphone-settings-open": true])
         let view = NSHostingView(rootView: content)
         view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -50,7 +59,10 @@ enum Main {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: view.fittingSize), styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
-        let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int((view.bounds.width * CGFloat(scale)).rounded()), pixelsHigh: Int((view.bounds.height * CGFloat(scale)).rounded()),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        bitmap.size = view.bounds.size
         view.cacheDisplay(in: view.bounds, to: bitmap)
 
         // The 3D model draws itself apart from the rest, so its picture is asked for and laid in.

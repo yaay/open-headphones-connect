@@ -23,3 +23,6 @@ packaging/store-identity.json
 # The Mac bridge (see macos/README.md).
 macos/bridge/target/
 macos/build/
+
+# Finder leaves these behind on a Mac.
+.DS_Store

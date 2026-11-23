@@ -99,7 +99,7 @@ macos/                  the Mac app so far, and notes for the rest (macos/README
   probe/                the same kind of diagnostic as --probe
   bridge/               the session behind a C interface, and the Swift that gives it IOBluetooth
   session/              runs the session through the bridge and prints what it reports
-  run.sh                builds and runs the app or either tool
+  run.sh                builds and runs the app or either tool, and packages the app
 ```
 
 `core` knows nothing about Windows. The session reaches the headset through three small traits
