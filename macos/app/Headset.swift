@@ -14,12 +14,31 @@ enum NoiseMode: String, Decodable {
     case off, wind, ambient
     case noiseCancelling = "noise_cancelling"
 
+    /// What a tile in the panel says, which has to be short.
     var label: String {
         switch self {
         case .noiseCancelling: "Cancelling"
         case .wind: "Wind"
         case .ambient: "Ambient"
         case .off: "Off"
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .noiseCancelling: "Noise cancelling"
+        case .wind: "Wind noise reduction"
+        case .ambient: "Ambient sound"
+        case .off: "Noise control off"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .noiseCancelling: "waveform.slash"
+        case .wind: "wind"
+        case .ambient: "ear"
+        case .off: "circle.slash"
         }
     }
 }
@@ -56,9 +75,47 @@ struct SwitchState: Decodable, Equatable {
     var on: Bool
 }
 
+/// The NC Optimizer: a run in which the headset plays tones and tunes its noise cancelling to
+/// how it sits and to the air pressure.
+struct Optimizer: Decodable, Equatable {
+    /// "idle", "measuring_fit", "measuring_pressure", "optimizing" or "finished".
+    var phase: String
+    /// False while the headset will not start a run.
+    var available: Bool
+    /// About how long a run takes; 0 where the headset did not say.
+    var seconds: Int
+    var fitMeasured: Bool
+    /// The air pressure last measured, in tenths of an atmosphere.
+    var pressure: Int?
+
+    var running: Bool { ["measuring_fit", "measuring_pressure", "optimizing"].contains(phase) }
+}
+
+/// A button or touch surface whose job can be chosen.
+struct Assignment: Decodable, Equatable {
+    var key: String
+    var button: Bool
+    var function: String
+    var options: [String]
+}
+
+/// A device the headphones are paired with.
+struct PairedDevice: Decodable, Equatable {
+    var address: String
+    var name: String
+    /// "computer", "phone" or "other".
+    var kind: String
+    var connected: Bool
+    /// Whether the sound is this device's right now.
+    var source: Bool
+}
+
 struct Snapshot: Decodable, Equatable {
     var phase = Phase.starting
     var deviceName: String?
+    /// The model and firmware as the headphones report them.
+    var model: String?
+    var firmware: String?
     var battery = Batteries()
     var noise: NoiseState?
     var noiseModes: [NoiseMode] = []
@@ -76,6 +133,10 @@ struct Snapshot: Decodable, Equatable {
     var switches: [SwitchState] = []
     var autoPowerOff: Int?
     var autoPowerOffOptions: [Int] = []
+    var optimizer: Optimizer?
+    var assignments: [Assignment] = []
+    var devices: [PairedDevice] = []
+    var canSelectSource = false
     /// "connecting_audio" or "disconnecting" while the session is at it.
     var pending: String?
     var notice: String?
@@ -94,8 +155,8 @@ struct Snapshot: Decodable, Equatable {
 @Observable
 final class Headset {
     private(set) var snapshot = Snapshot()
-    /// Called when the headphones have connected afresh, which is when the card appears.
-    var onConnect: (() -> Void)?
+    /// Goes up each time the headphones connect afresh, which is when the card appears.
+    private(set) var arrivals = 0
 
     /// Starts the session, or with `demo` a made-up headset of that model.
     func start(demo: String?) {
@@ -107,7 +168,7 @@ final class Headset {
                 // The session counts fresh connections, so this is every time the headset is
                 // switched on, and not when the link merely recovers from a hiccup.
                 if snapshot.phase == .connected && snapshot.connections != before {
-                    onConnect?()
+                    arrivals += 1
                 }
             } catch {
                 FileHandle.standardError.write(Data("A snapshot could not be read: \(error)\n".utf8))
@@ -124,6 +185,13 @@ final class Headset {
     }
 
     func connect() { send("connect") }
+
+    /// Between noise cancelling and ambient sound, for the global shortcut.
+    func toggleNoise() {
+        guard var noise = snapshot.noise, snapshot.noiseModes.contains(.noiseCancelling), snapshot.noiseModes.contains(.ambient) else { return }
+        noise.mode = noise.mode == .noiseCancelling ? .ambient : .noiseCancelling
+        setNoise(noise)
+    }
     func disconnect() { send("disconnect") }
     func powerOff() { send("power_off") }
 
@@ -139,6 +207,13 @@ final class Headset {
 
     func setSwitch(_ id: String, on: Bool) { send(["set_switch": [id, on]]) }
     func setAutoPowerOff(_ choice: Int) { send(["set_auto_power_off": choice]) }
+
+    func startOptimizer() { send("start_optimizer") }
+    func cancelOptimizer() { send("cancel_optimizer") }
+    func setAssignment(key: String, function: String) { send(["set_assignment": ["key": key, "function": function]]) }
+    func connectDevice(_ address: String) { send(["connect_device": address]) }
+    func disconnectDevice(_ address: String) { send(["disconnect_device": address]) }
+    func selectSource(_ address: String) { send(["select_source": address]) }
 }
 
 // The names below are Sony's, by the ids the headphones use. src/types.ts has the same tables.
@@ -153,6 +228,33 @@ let switchInfo: [String: (label: String, hint: String)] = [
     "sidetone": ("Hear your voice on calls", "Plays your own voice back while you talk"),
     "voice_guidance": ("Voice guidance", "Spoken prompts for power, battery and pairing"),
 ]
+
+/// What to call a key, and a job it can be given. The core names them (`assign` in
+/// core/src/protocol/mod.rs); one it has no name for is shown as it comes.
+func keyLabel(_ assignment: Assignment) -> String {
+    switch assignment.key {
+    case "custom": "Custom button"
+    case "nc_amb": "NC/AMBIENT button"
+    case "c": "C button"
+    case "left": assignment.button ? "Left button" : "Left earbud"
+    case "right": assignment.button ? "Right button" : "Right earbud"
+    default: assignment.key
+    }
+}
+
+func jobLabel(_ job: String) -> String {
+    let known = [
+        "noise_control": "Noise control", "volume": "Volume", "playback": "Playback", "tracks": "Skipping tracks",
+        "voice_assistant": "Voice assistant", "google_assistant": "Google Assistant", "amazon_alexa": "Amazon Alexa",
+        "tencent_xiaowei": "Tencent Xiaowei", "quick_access": "Quick Access", "teams": "Microsoft Teams",
+        "noise_control_and_quick_access": "Noise control and Quick Access",
+        "noise_control_and_microphone": "Noise control and microphone",
+        "listening_mode_and_quick_access": "Listening mode and Quick Access",
+        "noise_control_and_listening_mode": "Noise control and listening mode",
+        "none": "Nothing",
+    ]
+    return known[job] ?? job.replacingOccurrences(of: "_", with: " ").capitalized
+}
 
 let autoPowerOffLabel: [Int: String] = [
     0x00: "After 5 minutes", 0x01: "After 30 minutes", 0x02: "After 1 hour", 0x03: "After 3 hours",
@@ -172,11 +274,14 @@ let eqPresetLabel: [Int: String] = [
 /// The presets offered when a model does not list its own.
 let defaultEqPresets = [0x00, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0xA0, 0xA1, 0xA2]
 
-/// What to print beside each band's slider: the model's own frequencies where it gives them,
-/// else Sony's usual two layouts.
-func bandLabels(_ snapshot: Snapshot, count: Int) -> [String] {
+/// What to call each band, briefly under its fader ("1k") and in full ("1 kHz"): the model's
+/// own frequencies where it gives them, else Sony's usual two layouts.
+func bandLabels(_ snapshot: Snapshot, count: Int) -> [(short: String, full: String)] {
     let hertz = snapshot.eqFrequencies.count == count ? snapshot.eqFrequencies
         : count == 10 ? [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
         : [400, 1000, 2500, 6300, 16000]
-    return hertz.map { $0 >= 1000 ? "\((Double($0) / 1000).formatted()) kHz" : "\($0) Hz" }
+    return hertz.map { band in
+        let thousands = (Double(band) / 1000).formatted()
+        return band >= 1000 ? ("\(thousands)k", "\(thousands) kHz") : ("\(band)", "\(band) Hz")
+    }
 }

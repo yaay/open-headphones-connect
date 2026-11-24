@@ -12,7 +12,8 @@
 
 use super::framing::TYPE_DATA_MDR_NO2;
 use super::{
-    battery, codec_name, BatterySlot, EqState, Event, NoiseMode, NoiseState, Playback, Switch, Transport,
+    battery, codec_name, AssignableKey, BatterySlot, DeviceKind, EqState, Event, NoiseMode, NoiseState,
+    PairedDevice, Playback, Switch, Transport,
 };
 
 pub const SERVICE_UUID: u128 = 0x956C7B26_D49A_4BA8_B03F_B17D393CB6E2;
@@ -43,6 +44,21 @@ pub mod function {
     pub const PLAYBACK_CONTROL_BY_WEARING: u8 = 0xF1;
     pub const SMART_TALKING_MODE_TYPE1: u8 = 0xF2;
     pub const SMART_TALKING_MODE_TYPE2: u8 = 0xFC;
+    /// Buttons and touch surfaces whose job can be chosen. The second is the
+    /// same with a note about what LE Audio rules out, and wins where a
+    /// headset lists both.
+    pub const ASSIGNABLE_SETTING: u8 = 0xF3;
+    pub const ASSIGNABLE_SETTING_WITH_LIMITATION: u8 = 0xFE;
+}
+
+/// Table 2 function ids.
+pub mod function2 {
+    /// The list of paired devices: plain, and with each device's Bluetooth
+    /// class (over classic Bluetooth, and over classic and LE).
+    pub const PAIRED_DEVICES: u8 = 0x30;
+    pub const PAIRED_DEVICES_WITH_CLASS: [u8; 2] = [0x32, 0x33];
+    /// Choosing which connected device the sound comes from.
+    pub const SOURCE_SWITCH: u8 = 0x31;
 }
 
 // Inquired types: the second byte of most messages, naming the feature.
@@ -66,6 +82,11 @@ const AUDIO_UPSCALING: u8 = 0x01;
 const SYSTEM_PLAYBACK_CONTROL_BY_WEARING: u8 = 0x01;
 const SYSTEM_SMART_TALKING_TYPE1: u8 = 0x02;
 const SYSTEM_SMART_TALKING_TYPE2: u8 = 0x0C;
+const SYSTEM_ASSIGNABLE: u8 = 0x03;
+const SYSTEM_ASSIGNABLE_LIMITED: u8 = 0x0E;
+const PERIPHERAL_DEVICES: u8 = 0x00;
+const PERIPHERAL_SOURCE: u8 = 0x01;
+const PERIPHERAL_DEVICES_WITH_CLASS: u8 = 0x02;
 const ENGLISH: u8 = 0x01;
 /// `ValueChangeStatus::CHANGED`: the value is final, not mid-drag.
 const CHANGED: u8 = 0x01;
@@ -323,6 +344,13 @@ pub struct Capabilities {
     pub general_settings: Vec<u8>,
     /// Voice guidance, as its inquired type on table 2.
     pub voice_guidance: Option<u8>,
+    /// Buttons and touch surfaces whose job can be chosen, as the inquired
+    /// type to ask about them with.
+    pub assignable: Option<u8>,
+    /// The list of paired devices, as its inquired type on table 2.
+    pub devices: Option<u8>,
+    /// Whether the sound can be moved from one connected device to another.
+    pub source_switch: bool,
 }
 
 impl Capabilities {
@@ -394,8 +422,64 @@ impl Capabilities {
             pause_when_removed: has(PLAYBACK_CONTROL_BY_WEARING),
             general_settings: GENERAL_SETTINGS.iter().copied().filter(|id| has(*id)).collect(),
             voice_guidance,
+            assignable: if has(ASSIGNABLE_SETTING_WITH_LIMITATION) {
+                Some(SYSTEM_ASSIGNABLE_LIMITED)
+            } else if has(ASSIGNABLE_SETTING) {
+                Some(SYSTEM_ASSIGNABLE)
+            } else {
+                None
+            },
+            devices: if function2::PAIRED_DEVICES_WITH_CLASS.iter().any(|id| table2.contains(id)) {
+                Some(PERIPHERAL_DEVICES_WITH_CLASS)
+            } else if table2.contains(&function2::PAIRED_DEVICES) {
+                Some(PERIPHERAL_DEVICES)
+            } else {
+                None
+            },
+            source_switch: table2.contains(&function2::SOURCE_SWITCH),
         }
     }
+}
+
+// ----- keys and paired devices --------------------------------------------------
+
+/// Asks which buttons and touch surfaces can be given a job, and which jobs.
+/// `kind` is [`Capabilities::assignable`].
+pub fn get_assignable_keys(kind: u8) -> Vec<u8> {
+    vec![0xF0, kind]
+}
+
+pub fn get_assignments(kind: u8) -> Vec<u8> {
+    vec![0xF6, kind]
+}
+
+/// Every key's job at once, in the order the headset listed the keys: there
+/// is no changing one alone.
+pub fn set_assignments(kind: u8, presets: &[u8]) -> Vec<u8> {
+    let mut payload = vec![0xF8, kind, presets.len() as u8];
+    payload.extend_from_slice(presets);
+    payload
+}
+
+/// For the second command table. `kind` is [`Capabilities::devices`].
+pub fn get_paired_devices(kind: u8) -> Vec<u8> {
+    vec![0x36, kind]
+}
+
+/// Has the headset connect to a device it is paired with, or let go of it.
+/// For the second command table. `address` is as the headset gave it.
+pub fn connect_device(kind: u8, address: &str, connect: bool) -> Vec<u8> {
+    let mut payload = vec![0x3C, kind, connect as u8];
+    payload.extend_from_slice(address.as_bytes());
+    payload
+}
+
+/// Takes the sound from this one of the connected devices. For the second
+/// command table.
+pub fn select_source(address: &str) -> Vec<u8> {
+    let mut payload = vec![0x3C, PERIPHERAL_SOURCE];
+    payload.extend_from_slice(address.as_bytes());
+    payload
 }
 
 // ----- identity ---------------------------------------------------------------
@@ -700,6 +784,7 @@ pub fn parse(kind: u8, p: &[u8]) -> Vec<Event> {
         0xD1 => one(parse_general_setting_info(p)),
         0xD7 | 0xD9 => one(parse_general_setting(p)),
         0xE7 | 0xE9 => one(parse_audio(p)),
+        0xF1 => one(parse_assignable_keys(p)),
         0xF7 | 0xF9 => one(parse_system(p)),
         // Known and not used: the remaining capability, status and
         // notification messages of each group (connection, common, power,
@@ -710,13 +795,15 @@ pub fn parse(kind: u8, p: &[u8]) -> Vec<Event> {
         0x31..=0x3F | 0x41..=0x4D | 0x53 | 0x55 => vec![Event::Ignored],
         0x61 | 0x63 | 0x65 | 0x71..=0x7B | 0x81..=0x89 => vec![Event::Ignored],
         0x91 | 0x93 | 0x95 | 0xA1 | 0xB1..=0xB9 | 0xC9 => vec![Event::Ignored],
-        0xD3 | 0xD5 | 0xE1 | 0xE3 | 0xE5 | 0xF1 | 0xF3 | 0xF5 | 0xFB | 0xFD => vec![Event::Ignored],
+        0xD3 | 0xD5 | 0xE1 | 0xE3 | 0xE5 | 0xF3 | 0xF5 | 0xFB | 0xFD => vec![Event::Ignored],
         _ => Vec::new(),
     }
 }
 
 fn parse_table2(p: &[u8]) -> Vec<Event> {
     match p[0] {
+        0x37 | 0x39 => vec![parse_devices(p).unwrap_or(Event::Ignored)],
+        0x3D => vec![parse_device_action(p).unwrap_or(Event::Ignored)],
         0x07 => vec![parse_support_functions(p).map_or(Event::Ignored, Event::SupportFunctions2)],
         // [cmd, variant, onOff, language]
         0x47 | 0x49 if p.len() >= 3 && p[1] <= 0x03 => {
@@ -922,8 +1009,100 @@ fn parse_audio(p: &[u8]) -> Option<Event> {
     Some(Event::Switch(Switch::Upscaling, p[2] == 0x01))
 }
 
-// [cmd, type, onOff, …]
+// [cmd, type, (a note on limits, only in the limited kind,) keyCount], then per
+// key [key, 0 touch | 1 button, defaultPreset, presetCount], and per preset
+// [preset, fixedCount, choosableCount], fixedCount × [action, function],
+// choosableCount × [action, defaultFunction, functionCount, function…].
+//
+// No recording of a real headset has this message. The layout is the one
+// libmdr and acouplet both read; anything that does not come out even is
+// dropped whole rather than half believed.
+fn parse_assignable_keys(p: &[u8]) -> Option<Event> {
+    let mut at = match p[1] {
+        SYSTEM_ASSIGNABLE => 2,
+        SYSTEM_ASSIGNABLE_LIMITED => 3,
+        _ => return None,
+    };
+    let key_count = *p.get(at)?;
+    at += 1;
+    let mut keys = Vec::new();
+    for _ in 0..key_count {
+        let (key, kind, preset_count) = (*p.get(at)?, *p.get(at + 1)?, *p.get(at + 3)?);
+        at += 4;
+        let mut presets = Vec::new();
+        for _ in 0..preset_count {
+            let (preset, fixed, choosable) = (*p.get(at)?, *p.get(at + 1)? as usize, *p.get(at + 2)?);
+            presets.push(preset);
+            at += 3 + fixed * 2;
+            for _ in 0..choosable {
+                at += 3 + *p.get(at + 2)? as usize;
+            }
+        }
+        keys.push(AssignableKey { key, button: kind == 0x01, presets });
+    }
+    (at == p.len()).then_some(Event::AssignableKeys(keys))
+}
+
+// [cmd, type, count], then per device [address ×17 as text, connection (0 not
+// connected, else 1, 2…), Bluetooth class ×3 (only in the kind that has it),
+// nameLen, name…], and last the connection whose sound is playing
+fn parse_devices(p: &[u8]) -> Option<Event> {
+    let with_class = match p[1] {
+        PERIPHERAL_DEVICES => false,
+        PERIPHERAL_DEVICES_WITH_CLASS => true,
+        _ => return None,
+    };
+    let mut at = 3;
+    let mut found = Vec::new();
+    for _ in 0..*p.get(2)? {
+        let address = std::str::from_utf8(p.get(at..at + 17)?).ok()?.to_ascii_uppercase();
+        let connection = *p.get(at + 17)?;
+        at += 18;
+        let mut kind = DeviceKind::Other;
+        if with_class {
+            // The major device class: bits 8 to 12 of the three bytes.
+            kind = match p.get(at..at + 3)?[1] & 0x1F {
+                0x01 => DeviceKind::Computer,
+                0x02 => DeviceKind::Phone,
+                _ => DeviceKind::Other,
+            };
+            at += 3;
+        }
+        let (name, next) = text(p, at)?;
+        at = next;
+        found.push((connection, PairedDevice { address, name, kind, connected: connection != 0, source: false }));
+    }
+    let playing = *p.get(at)?;
+    let devices = found.into_iter().map(|(connection, device)| PairedDevice {
+        source: connection != 0 && connection == playing,
+        ..device
+    });
+    Some(Event::PairedDevices(devices.collect()))
+}
+
+// How a request about a paired device went. For connecting and
+// disconnecting: [cmd, type, action, result, address ×17], the result's low
+// half 0 done, 1 failed, 2 under way, 3 busy. For taking the sound:
+// [cmd, 1, result, address ×17], 0 done and anything else a refusal.
+fn parse_device_action(p: &[u8]) -> Option<Event> {
+    let (result, address) = match p[1] {
+        PERIPHERAL_SOURCE => (if *p.get(2)? == 0 { 0 } else { 1 }, p.get(3..20)?),
+        PERIPHERAL_DEVICES | PERIPHERAL_DEVICES_WITH_CLASS => (*p.get(3)? & 0x0F, p.get(4..21)?),
+        _ => return None,
+    };
+    Some(Event::DeviceAction {
+        address: std::str::from_utf8(address).ok()?.to_ascii_uppercase(),
+        done: result == 0,
+        failed: matches!(result, 1 | 3),
+    })
+}
+
+// [cmd, type, onOff, …], or for the keys [cmd, type, count, preset per key]
 fn parse_system(p: &[u8]) -> Option<Event> {
+    if matches!(p[1], SYSTEM_ASSIGNABLE | SYSTEM_ASSIGNABLE_LIMITED) {
+        let count = *p.get(2)? as usize;
+        return Some(Event::AssignedPresets(p.get(3..3 + count)?.to_vec()));
+    }
     let on = *p.get(2)? == on_off(true);
     match p[1] {
         SYSTEM_PLAYBACK_CONTROL_BY_WEARING => Some(Event::Switch(Switch::PauseWhenRemoved, on)),
@@ -1276,6 +1455,95 @@ mod tests {
             let used = events.iter().filter(|e| **e != Event::Ignored).count();
             assert!(used >= least, "{name}: only {used} recorded messages were put to use");
         }
+    }
+
+    #[test]
+    fn reads_the_paired_devices_of_the_recorded_earbuds() {
+        let devices = |recording| {
+            replay(recording)
+                .into_iter()
+                .find_map(|event| if let Event::PairedDevices(devices) = event { Some(devices) } else { None })
+                .expect("no list of paired devices in the recording")
+        };
+
+        let clip = devices(LINKBUDS_CLIP);
+        assert_eq!(clip.len(), 6);
+        assert_eq!(clip[0].address, "AA:BB:CC:00:00:01");
+        assert_eq!(clip[1].name, "Paired Device 02--");
+        assert_eq!(clip.iter().map(|d| d.connected).collect::<Vec<_>>(), [true, true, false, false, false, false]);
+        // The second connection is the one whose sound was playing.
+        assert_eq!(clip.iter().map(|d| d.source).collect::<Vec<_>>(), [false, true, false, false, false, false]);
+        assert_eq!(clip[0].kind, DeviceKind::Computer);
+        assert_eq!(clip[1].kind, DeviceKind::Phone);
+        assert_eq!(clip[4].kind, DeviceKind::Other);
+
+        let xm5 = devices(WF_1000XM5);
+        assert_eq!(xm5.len(), 8);
+        assert_eq!(xm5.iter().filter(|d| d.connected).count(), 2);
+        assert_eq!(xm5.iter().position(|d| d.source), Some(0));
+        assert_eq!(xm5[1].kind, DeviceKind::Phone);
+
+        let (table1, table2) = functions(&replay(WF_1000XM5));
+        let caps = Capabilities::resolve(&table1, &table2);
+        assert_eq!(caps.devices, Some(0x02));
+        assert!(caps.source_switch);
+        assert_eq!(caps.assignable, Some(0x03));
+    }
+
+    #[test]
+    fn reads_what_the_recorded_earbuds_keys_do() {
+        let has = |recording, event: Event| replay(recording).contains(&event);
+        assert!(has(WF_1000XM5, Event::AssignedPresets(vec![0x35, 0x20])));
+        assert!(has(LINKBUDS_CLIP, Event::AssignedPresets(vec![0x46, 0x20])));
+    }
+
+    #[test]
+    fn reads_which_jobs_each_key_can_have() {
+        // Not from a real headset: no recording has this message. The right
+        // key can do playback or volume. The left has a job with one fixed
+        // gesture and one that can be chosen from two, and "nothing".
+        #[rustfmt::skip]
+        let message = [
+            0xF1, 0x03, 0x02,
+            0x01, 0x00, 0x20, 0x02,  0x20, 0x01, 0x00, 0x00, 0x20,  0x10, 0x01, 0x00, 0x03, 0x23,
+            0x00, 0x00, 0x35, 0x02,  0x35, 0x01, 0x01, 0x00, 0x02, 0x01, 0x43, 0x02, 0x43, 0x44,
+                                     0xFF, 0x01, 0x00, 0x00, 0x00,
+        ];
+        let keys = vec![
+            AssignableKey { key: 0x01, button: false, presets: vec![0x20, 0x10] },
+            AssignableKey { key: 0x00, button: false, presets: vec![0x35, 0xFF] },
+        ];
+        assert_eq!(parse(T1, &message), [Event::AssignableKeys(keys.clone())]);
+
+        // The kind with a note on limits has one more byte before the keys.
+        let mut limited = message.to_vec();
+        limited[1] = 0x0E;
+        limited.insert(2, 0x00);
+        assert_eq!(parse(T1, &limited), [Event::AssignableKeys(keys)]);
+
+        // One byte short or over, and none of it is believed.
+        assert_eq!(parse(T1, &message[..message.len() - 1]), [Event::Ignored]);
+        assert_eq!(parse(T1, &[&message[..], &[0x00]].concat()), [Event::Ignored]);
+    }
+
+    #[test]
+    fn builds_the_key_and_device_messages() {
+        assert_eq!(set_assignments(0x03, &[0x20, 0xFF]), [0xF8, 0x03, 0x02, 0x20, 0xFF]);
+        assert_eq!(get_paired_devices(0x02), [0x36, 0x02]);
+        let address = "AA:BB:CC:00:00:01";
+        assert_eq!(connect_device(0x02, address, true), [&[0x3C, 0x02, 0x01][..], address.as_bytes()].concat());
+        assert_eq!(connect_device(0x00, address, false), [&[0x3C, 0x00, 0x00][..], address.as_bytes()].concat());
+        assert_eq!(select_source(address), [&[0x3C, 0x01][..], address.as_bytes()].concat());
+
+        let reply = |head: &[u8]| parse(T2, &[head, address.as_bytes()].concat());
+        let action = |done, failed| [Event::DeviceAction { address: address.into(), done, failed }];
+        // Connecting: under way, then done. Busy is a refusal.
+        assert_eq!(reply(&[0x3D, 0x02, 0x01, 0x12]), action(false, false));
+        assert_eq!(reply(&[0x3D, 0x02, 0x01, 0x10]), action(true, false));
+        assert_eq!(reply(&[0x3D, 0x02, 0x00, 0x03]), action(false, true));
+        // Taking the sound: done, or refused because a call is on.
+        assert_eq!(reply(&[0x3D, 0x01, 0x00]), action(true, false));
+        assert_eq!(reply(&[0x3D, 0x01, 0x02]), action(false, true));
     }
 
     #[test]

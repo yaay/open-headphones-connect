@@ -15,7 +15,7 @@
 use super::framing::TYPE_DATA_MDR_NO2;
 use super::{
     battery, codec_name, BatterySlot, EqState, Event, NoiseCapability, NoiseMode, NoiseState,
-    Playback, Switch, Transport,
+    OptimizerPhase, Playback, Switch, Transport,
 };
 
 pub const SERVICE_UUID: u128 = 0x96CC203E_5068_46AD_B32D_E316F5E069BA;
@@ -38,6 +38,7 @@ pub mod function {
     pub const NOISE_CANCELLING: u8 = 0x61;
     pub const NOISE_CANCELLING_AND_AMBIENT_SOUND_MODE: u8 = 0x62;
     pub const AMBIENT_SOUND_MODE: u8 = 0x63;
+    pub const NC_OPTIMIZER: u8 = 0x81;
     pub const PLAYBACK_CONTROLLER: u8 = 0xA1;
     pub const GENERAL_SETTINGS: [u8; 3] = [0xD1, 0xD2, 0xD3];
     pub const UPSCALING: u8 = 0xE2;
@@ -98,6 +99,8 @@ const SYSTEM_CONTROL_BY_WEARING: u8 = 0x03;
 const SYSTEM_AUTO_POWER_OFF: u8 = 0x04;
 const SYSTEM_SMART_TALKING: u8 = 0x05;
 const GS_BOOLEAN: u8 = 0x01;
+const GS_LIST: u8 = 0x02;
+const OPTIMIZER_NC: u8 = 0x01;
 const ALERT_FIXED_MESSAGE: u8 = 0x01;
 const ALERT_POSITIVE_NEGATIVE: u8 = 0x01;
 const VOICE_GUIDANCE_SETTING: u8 = 0x01;
@@ -284,6 +287,31 @@ pub fn set_general_setting(slot: u8, on: bool) -> Vec<u8> {
     vec![0xD8, slot, GS_BOOLEAN, on as u8]
 }
 
+/// For a general setting that is a choice among several: `index` counts
+/// through the choices as the headset listed them.
+pub fn set_general_setting_choice(slot: u8, index: u8) -> Vec<u8> {
+    vec![0xD8, slot, GS_LIST, index]
+}
+
+/// Asks how long a run of the NC Optimizer takes.
+pub fn get_optimizer_time() -> Vec<u8> {
+    vec![0x80, OPTIMIZER_NC]
+}
+
+pub fn get_optimizer_status() -> Vec<u8> {
+    vec![0x82, OPTIMIZER_NC]
+}
+
+/// Asks what the last run measured.
+pub fn get_optimizer_result() -> Vec<u8> {
+    vec![0x86, OPTIMIZER_NC]
+}
+
+/// Starts a run of the NC Optimizer, or stops the one under way.
+pub fn set_optimizer(start: bool) -> Vec<u8> {
+    vec![0x84, OPTIMIZER_NC, 0x00, start as u8]
+}
+
 /// Speak-to-Chat: pausing the music when the wearer starts talking.
 pub fn get_speak_to_chat() -> Vec<u8> {
     vec![0xF6, SYSTEM_SMART_TALKING]
@@ -345,18 +373,21 @@ pub fn parse(kind: u8, p: &[u8]) -> Vec<Event> {
         0x99 => one(parse_alert(p)),
         0xA3 | 0xA5 => one(parse_playback(p)),
         0xA7 | 0xA9 => one(parse_volume(p)),
-        0xD1 => one(parse_general_setting_info(p)),
+        0x81 => one(parse_optimizer_time(p)),
+        0x83 | 0x85 => one(parse_optimizer_status(p)),
+        0x87 | 0x89 => one(parse_optimizer_result(p)),
+        0xD1 => parse_general_setting_info(p),
         0xD7 | 0xD9 => one(parse_general_setting(p)),
         0xE7 | 0xE9 => one(parse_upscaling(p)),
         0xF1 => one(parse_auto_power_off_options(p)),
         0xF7 | 0xF9 => one(parse_system(p)),
-        // Known and not used: identity and update details, the DSEE and
-        // optimizer indicators, capability and status replies for functions
-        // handled above.
+        // Known and not used: identity and update details, the DSEE
+        // indicator, capability and status replies for functions handled
+        // above.
         0x03 | 0x15 | 0x17 | 0x1D | 0x25 | 0x27 | 0x29 | 0x2F | 0x35 | 0x37 => vec![Event::Ignored],
         0x41 | 0x43 | 0x45 | 0x47 | 0x49 => vec![Event::Ignored],
         0x51 | 0x53 | 0x55 | 0x5B | 0x63 | 0x65 | 0x71 => vec![Event::Ignored],
-        0x81 | 0x83 | 0x85 | 0x87 | 0x89 | 0x91 | 0xA1 | 0xC9 => vec![Event::Ignored],
+        0x91 | 0xA1 | 0xC9 => vec![Event::Ignored],
         0xD3 | 0xD5 | 0xE1 | 0xE3 | 0xE5 | 0xF3 | 0xF5 | 0xFB | 0xFD => vec![Event::Ignored],
         _ => Vec::new(),
     }
@@ -544,25 +575,82 @@ fn parse_volume(p: &[u8]) -> Option<Event> {
     Some(Event::Volume(p[3].min(MAX_VOLUME)))
 }
 
-// [cmd, slot, stringFormat, nameLen, name…, summaryLen, summary…, settingType, …]
-fn parse_general_setting_info(p: &[u8]) -> Option<Event> {
-    let name_len = *p.get(3)? as usize;
-    let name = p.get(4..4 + name_len)?;
-    let summary_len = *p.get(4 + name_len)? as usize;
-    let setting_type = *p.get(5 + name_len + summary_len)?;
-    Some(Event::GeneralSettingInfo {
-        slot: p[1],
-        name: String::from_utf8_lossy(name).into_owned(),
-        boolean: setting_type == GS_BOOLEAN,
-    })
+/// A name and the summary after it, each a length byte and that many
+/// characters, with a string format byte in front. Returns the name and
+/// where the next thing starts.
+fn named(p: &[u8], at: usize) -> Option<(String, usize)> {
+    let name_len = *p.get(at + 1)? as usize;
+    let name = p.get(at + 2..at + 2 + name_len)?;
+    let summary_len = *p.get(at + 2 + name_len)? as usize;
+    Some((String::from_utf8_lossy(name).into_owned(), at + 3 + name_len + summary_len))
 }
 
-// [cmd, slot, settingType, value]
+// [cmd, slot, stringFormat, nameLen, name…, summaryLen, summary…, settingType]
+// and for a list: [count] then per choice [stringFormat, nameLen, name…,
+// summaryLen, summary…]
+fn parse_general_setting_info(p: &[u8]) -> Vec<Event> {
+    let Some((name, after)) = named(p, 2) else { return vec![Event::Ignored] };
+    let Some(setting_type) = p.get(after).copied() else { return vec![Event::Ignored] };
+    let mut events =
+        vec![Event::GeneralSettingInfo { slot: p[1], name: name.clone(), boolean: setting_type == GS_BOOLEAN }];
+    if setting_type == GS_LIST {
+        let mut options = Vec::new();
+        let mut at = after + 2;
+        for _ in 0..p.get(after + 1).copied().unwrap_or(0) {
+            let Some((option, next)) = named(p, at) else { break };
+            options.push(option);
+            at = next;
+        }
+        events.push(Event::GeneralSettingList { slot: p[1], name, options });
+    }
+    events
+}
+
+// [cmd, slot, settingType, value]: on or off, or which of the choices
 fn parse_general_setting(p: &[u8]) -> Option<Event> {
-    if p.len() < 4 || p[2] != GS_BOOLEAN {
+    match *p.get(2)? {
+        GS_BOOLEAN => Some(Event::GeneralSetting { slot: p[1], on: *p.get(3)? == 1 }),
+        GS_LIST => Some(Event::GeneralSettingChoice { slot: p[1], index: *p.get(3)? }),
+        _ => None,
+    }
+}
+
+// [cmd, type, optimizing, fitMeasured?, fitTime, pressureMeasured?, pressureTime]:
+// the times in seconds, each measurement counted only if the headset makes it
+fn parse_optimizer_time(p: &[u8]) -> Option<Event> {
+    if p.len() < 7 || p[1] != OPTIMIZER_NC {
         return None;
     }
-    Some(Event::GeneralSetting { slot: p[1], on: p[3] == 1 })
+    let part = |supported: u8, seconds: u8| if supported == 1 { seconds } else { 0 };
+    Some(Event::OptimizerTime(p[2].saturating_add(part(p[3], p[4])).saturating_add(part(p[5], p[6]))))
+}
+
+// [cmd, type, 0 available | 1 not, phase]
+fn parse_optimizer_status(p: &[u8]) -> Option<Event> {
+    if p.len() < 4 || p[1] != OPTIMIZER_NC {
+        return None;
+    }
+    let phase = match p[3] {
+        0x00 => OptimizerPhase::Idle,
+        0x01 => OptimizerPhase::MeasuringFit,
+        0x02 => OptimizerPhase::MeasuringPressure,
+        0x10 => OptimizerPhase::Optimizing,
+        0x11 => OptimizerPhase::Finished,
+        _ => return None,
+    };
+    Some(Event::OptimizerStatus { available: p[2] == 0, phase })
+}
+
+// [cmd, type, fitMeasured?, 0 never | 1 measured, pressureMeasured?, 0 never |
+// tenths of an atmosphere]
+fn parse_optimizer_result(p: &[u8]) -> Option<Event> {
+    if p.len() < 6 || p[1] != OPTIMIZER_NC {
+        return None;
+    }
+    Some(Event::OptimizerResult {
+        fit_measured: p[2] == 1 && p[3] == 1,
+        pressure: (p[4] == 1 && p[5] != 0).then_some(p[5]),
+    })
 }
 
 // [cmd, inquiry, settingType, value]
@@ -867,6 +955,51 @@ mod tests {
             name: "ASSIGNABLE_KEY_SETTING".into(),
             boolean: false,
         }));
+    }
+
+    #[test]
+    fn reads_the_xm3s_optimizer_and_its_button_from_the_recording() {
+        let events = replay();
+        let has = |event: Event| events.contains(&event);
+        // Two seconds of optimizing, nine of measuring the fit, two of the pressure.
+        assert!(has(Event::OptimizerTime(13)));
+        assert!(has(Event::OptimizerStatus { available: true, phase: OptimizerPhase::Idle }));
+        // The recording also has the headset saying no for a moment, and yes again.
+        assert!(has(Event::OptimizerStatus { available: false, phase: OptimizerPhase::Idle }));
+        assert!(has(Event::OptimizerResult { fit_measured: true, pressure: Some(8) }));
+
+        assert!(has(Event::GeneralSettingList {
+            slot: 0xD1,
+            name: "ASSIGNABLE_KEY_SETTING".into(),
+            options: [
+                "ASSIGNABLE_KEY_ELEM_NCASM",
+                "ASSIGNABLE_KEY_ELEM_GOOGLE_ASSISTANT",
+                "ASSIGNABLE_KEY_ELEM_AMAZON_ALEXA",
+            ]
+            .map(String::from)
+            .to_vec(),
+        }));
+        assert!(has(Event::GeneralSettingChoice { slot: 0xD1, index: 0 }));
+        // The touch panel is still the plain switch it was.
+        assert!(has(Event::GeneralSetting { slot: 0xD2, on: true }));
+    }
+
+    #[test]
+    fn builds_the_optimizer_and_button_messages() {
+        assert_eq!(set_optimizer(true), [0x84, 0x01, 0x00, 0x01]);
+        assert_eq!(set_optimizer(false), [0x84, 0x01, 0x00, 0x00]);
+        assert_eq!(get_optimizer_status(), [0x82, 0x01]);
+        assert_eq!(set_general_setting_choice(0xD1, 2), [0xD8, 0xD1, 0x02, 0x02]);
+        // A run as the headset tells it: fit, pressure, optimizing, done.
+        let phase = |byte| parse(TYPE_DATA_MDR, &[0x85, 0x01, 0x00, byte]);
+        assert_eq!(phase(0x01), [Event::OptimizerStatus { available: true, phase: OptimizerPhase::MeasuringFit }]);
+        assert_eq!(phase(0x02), [Event::OptimizerStatus { available: true, phase: OptimizerPhase::MeasuringPressure }]);
+        assert_eq!(phase(0x10), [Event::OptimizerStatus { available: true, phase: OptimizerPhase::Optimizing }]);
+        assert_eq!(phase(0x11), [Event::OptimizerStatus { available: true, phase: OptimizerPhase::Finished }]);
+        assert_eq!(
+            parse(TYPE_DATA_MDR, &[0x89, 0x01, 0x01, 0x00, 0x01, 0x00]),
+            [Event::OptimizerResult { fit_measured: false, pressure: None }]
+        );
     }
 
     #[test]
