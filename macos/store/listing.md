@@ -2,7 +2,7 @@
 
 A draft of the text for App Store Connect, English (U.S.). Each heading below is the name of a
 field there, with its limit. It says only what the Mac app does today: no playback or volume
-controls, no low-battery warning and no starting at login, which the Windows listing has.
+controls and no low-battery warning, which the Windows listing has.
 
 ## Name (30)
 
@@ -25,9 +25,13 @@ When your headphones connect, a small card slides in with a 3D picture of them, 
 What you can do:
 • See the battery level at a glance, right in the menu bar
 • Switch between noise cancelling, ambient sound and off, with the ambient level and focus on voice
+• Run the NC Optimizer, which tunes noise cancelling to you and to the air pressure around you
 • Pick an equalizer preset or shape your own curve
+• See which devices the headphones are connected to, and switch which one plays
+• Choose what the custom button does
 • Connect, disconnect or power off the headphones with one click
 • Change headphone settings: Speak-to-Chat, touch panel, DSEE upscaling, voice guidance, automatic power-off
+• Switch the noise mode from anywhere with Option-Command-A, and open the app at login
 
 Headphones it works with:
 • WH-1000XM3: tested on the Mac
@@ -52,7 +56,11 @@ The description may say what the app works with; keywords are where it gets apps
 
 ## What's New in This Version
 
-First release on the Mac App Store.
+• NC Optimizer, the custom button, and the devices your headphones are connected to, with switching between them
+• Switch the noise mode from anywhere with Option-Command-A
+• Open at login
+• A redesigned panel, and a livelier card when your headphones connect
+• Recovers by itself when macOS restarts Bluetooth
 
 ## Support URL
 
@@ -65,9 +73,6 @@ https://github.com/yaay/open-headphones-connect
 ## Privacy Policy URL
 
 https://github.com/yaay/open-headphones-connect/blob/main/docs/privacy.md
-
-The page covers the Mac app once the change that adds it is on the `main` branch, which is
-where this link points.
 
 ## Copyright
 
