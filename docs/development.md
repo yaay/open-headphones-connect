@@ -54,6 +54,51 @@ Two things differ inside the package, both in `src-tauri/src/startup.rs`: starti
 goes through a startup task declared in `packaging/AppxManifest.xml`, and settings, your own 3D
 models and the log live in `%LocalAppData%\Packages\<package family>\LocalState\`.
 
+### Sending a version to the Store
+
+`.github/workflows/store.yml` does this without anyone opening Partner Center. When a GitHub
+release is published, it builds the package for x64 and for ARM64 from that release's tag, puts
+the two into one bundle and submits it with Microsoft's
+[Store Developer CLI](https://learn.microsoft.com/windows/apps/publish/msstore-dev-cli/overview).
+Certification then takes its usual time. Run by hand from the Actions tab, it leaves the upload
+as a draft in Partner Center unless told to send it. Either way it replaces a submission that
+was started in Partner Center and not finished.
+
+It needs five repository secrets (Settings > Secrets and variables > Actions):
+
+| Secret | What it is |
+| --- | --- |
+| `PARTNER_CENTER_TENANT_ID` | The Microsoft Entra tenant linked to the Partner Center account |
+| `PARTNER_CENTER_CLIENT_ID` | The Entra app registration that has the Manager role in Partner Center |
+| `PARTNER_CENTER_CLIENT_SECRET` | A client secret of that app registration. It expires; renew it before it does |
+| `PARTNER_CENTER_SELLER_ID` | The Seller ID from Partner Center's account settings |
+| `STORE_IDENTITY_JSON` | The contents of `packaging\store-identity.json` |
+
+Microsoft's [guide](https://learn.microsoft.com/windows/apps/publish/msstore-dev-cli/github-actions)
+walks through creating the first four.
+
+## Windows on ARM
+
+The app builds natively for ARM PCs as well (`aarch64-pc-windows-msvc`). The GitHub build does
+that on an ARM machine with every push: it runs the tests there, starts the app in demo mode to
+see the connect card come up, and keeps the installer and the program as the run's
+`windows-arm64` artifact. A release ships that installer for ARM.
+
+To build it on your own PC you need Visual Studio's "MSVC ARM64 build tools" component and
+`rustup target add aarch64-pc-windows-msvc`:
+
+```powershell
+npx tauri build --target aarch64-pc-windows-msvc    # the installer
+.\packaging\build-msix.ps1 -Arch arm64              # the Store package
+```
+
+The Store package can also be made from a program built elsewhere, which is how the GitHub
+build's program gets your own Store identity:
+
+```powershell
+.\packaging\build-msix.ps1 -Arch arm64 -Exe .\open-headphones-connect.exe
+```
+
 ## Seeing what a headset says
 
 A debug build has a probe that asks every question directly and prints the raw answers:

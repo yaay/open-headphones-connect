@@ -1,0 +1,125 @@
+name: Microsoft Store
+
+# Sends a version of the Windows app to the Microsoft Store: builds the Store
+# package for x64 and for ARM64 from the release's tag, puts the two in one
+# bundle and hands it to Partner Center, where it goes through certification.
+#
+# It runs when a GitHub release is published, and can be run by hand from the
+# Actions tab. docs/development.md lists the secrets it needs.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      submit:
+        description: Send it for certification. Unticked, the upload waits as a draft in Partner Center.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One submission at a time: a second one would replace the first's draft.
+concurrency:
+  group: microsoft-store
+
+env:
+  STORE_PRODUCT_ID: 9NXQ80TSQD95
+
+jobs:
+  package:
+    name: Store package (${{ matrix.arch }})
+    # A fork has neither the secrets nor the app.
+    if: github.repository == 'yaay/open-headphones-connect'
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core
+            src-tauri
+
+      # The package has to carry the identity Partner Center gave the app.
+      - name: Use the Store identity
+        shell: pwsh
+        env:
+          STORE_IDENTITY_JSON: ${{ secrets.STORE_IDENTITY_JSON }}
+        run: |
+          if (-not $env:STORE_IDENTITY_JSON) { throw "The STORE_IDENTITY_JSON secret is not set." }
+          Set-Content packaging\store-identity.json $env:STORE_IDENTITY_JSON -NoNewline
+
+      - name: Build the Store package
+        shell: pwsh
+        run: .\packaging\build-msix.ps1 -Arch ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: msix-${{ matrix.arch }}
+          path: src-tauri/target/msix/*.msix
+          if-no-files-found: error
+
+  publish:
+    name: Send to Partner Center
+    needs: package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: msix-*
+          path: packages
+          merge-multiple: true
+
+      - name: Bundle the packages
+        shell: pwsh
+        run: .\packaging\build-msix.ps1 -Bundle packages
+
+      - name: Set up the Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.4
+        with:
+          version: v0.4.4
+
+      - name: Sign in to Partner Center
+        shell: pwsh
+        env:
+          TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+        run: |
+          foreach ($name in "TENANT_ID", "SELLER_ID", "CLIENT_ID", "CLIENT_SECRET") {
+            if (-not [Environment]::GetEnvironmentVariable($name)) { throw "The PARTNER_CENTER_$name secret is not set." }
+          }
+          msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
+          if ($LASTEXITCODE -ne 0) { throw "Partner Center did not accept the credentials." }
+
+      # A published release always goes for certification; a run by hand does
+      # only when asked to.
+      - name: Send the bundle
+        shell: pwsh
+        run: |
+          $bundle = (Get-ChildItem packages -Filter *.msixbundle).FullName
+          $submit = "${{ github.event_name == 'release' || inputs.submit }}" -eq "true"
+          $send = @("publish", $bundle, "--appId", $env:STORE_PRODUCT_ID)
+          if (-not $submit) { $send += "--noCommit" }
+          msstore @send
+          if ($LASTEXITCODE -ne 0) { throw "The Store did not take the submission." }
+          if ($submit) { "Sent for certification." } else { "Left as a draft in Partner Center." }
