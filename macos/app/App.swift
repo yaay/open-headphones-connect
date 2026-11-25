@@ -13,9 +13,50 @@
 //                                                   # after that command, or several, has been sent
 
 import AppKit
+import CoreBluetooth
 import SwiftUI
 
 let headset = Headset()
+
+
+/// macOS's Bluetooth service can restart under a running app. IOBluetooth, which the session uses,
+/// does not get over that: from then on it calls the headphones not connected, while a freshly
+/// started app sees them. CoreBluetooth does notice, so once the service is back the app starts
+/// itself again.
+final class BluetoothRestart: NSObject, CBCentralManagerDelegate {
+    static let shared = BluetoothRestart()
+    private var manager: CBCentralManager?
+    private var lost = false
+
+    func watch() {
+        // Not on the main queue: IOBluetooth's first call there waits for CoreBluetooth, which
+        // would in turn wait for the main queue to take this manager's news, and the app froze.
+        let queue = DispatchQueue(label: "bluetooth-restart")
+        manager = CBCentralManager(delegate: self, queue: queue, options: [CBCentralManagerOptionShowPowerAlertKey: false])
+    }
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        switch central.state {
+        case .resetting:
+            lost = true
+        case .unknown:
+            break
+        default:
+            guard lost else { return }
+            lost = false
+            DispatchQueue.main.async {
+                let fresh = NSWorkspace.OpenConfiguration()
+                fresh.createsNewApplicationInstance = true
+                fresh.activates = false
+                NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: fresh) { _, error in
+                    if error == nil {
+                        DispatchQueue.main.async { NSApp.terminate(nil) }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @main
 enum Main {
@@ -46,6 +87,9 @@ enum Main {
         } else {
             Shortcut.shared.action = { headset.toggleNoise() }
             Shortcut.shared.enabled = UserDefaults.standard.bool(forKey: Preference.shortcut)
+            if demo == nil {
+                BluetoothRestart.shared.watch()
+            }
             headset.start(demo: demo)
             OpenHeadphonesConnect.main()
         }

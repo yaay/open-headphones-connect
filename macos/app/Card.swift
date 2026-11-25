@@ -32,44 +32,63 @@ struct CardView: View {
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
+    /// The battery and the status, which follow the card in once the headphones are on their way.
+    @State private var revealed = false
     @State private var hovering = false
 
     var body: some View {
         let snapshot = headset.snapshot
+        let shown = self.shown || !live
+        let revealed = self.revealed || !live
         VStack(spacing: 2) {
             Text(snapshot.deviceName ?? "Sony headphones").font(.title2.weight(.semibold))
             Group {
                 if live {
-                    HeadphonesView()
+                    // A new identity for every arrival, so the model is built again and spins in
+                    // again; otherwise the window keeps the one from last time, at rest.
+                    HeadphonesView().id(headset.arrivals)
                 } else {
                     portrait.resizable().scaledToFit().padding(30)
                 }
             }
             .frame(width: 280, height: 230)
             // A faint pool of light behind the headphones, so a black pair still stands out on
-            // a dark card.
-            .background(RadialGradient(colors: [.white.opacity(0.22), .clear], center: .center, startRadius: 0, endRadius: 120))
+            // a dark card. It swells in with them.
+            .background(
+                RadialGradient(colors: [.white.opacity(0.22), .clear], center: .center, startRadius: 0, endRadius: 120)
+                    .scaleEffect(revealed ? 1 : 0.4)
+                    .opacity(revealed ? 1 : 0)
+                    .animation(motion(.easeOut(duration: 1.1)), value: revealed)
+            )
             .accessibilityHidden(true)
             if let battery = snapshot.headlineBattery {
-                Label("\(battery.level)%" + (battery.charging ? ", charging" : ""), systemImage: batterySymbol(battery))
+                // The figure rolls up from nothing as it arrives, and rolls on when it changes.
+                let level = revealed ? battery.level : 0
+                Label("\(level)%" + (battery.charging ? ", charging" : ""), systemImage: batterySymbol(battery))
                     .font(.title3.weight(.semibold))
                     .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(level)))
+                    .rise(revealed, motion(.spring(duration: 0.7, bounce: 0.25).delay(0.45)))
             }
             // In full strength: on the card's translucent ground, the secondary colour is too faint.
             Label {
                 Text(status(snapshot))
             } icon: {
-                Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(.secondary)
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .foregroundStyle(.secondary)
+                    .symbolEffect(.variableColor.iterative, options: .nonRepeating, value: revealed)
             }
             .font(.body.weight(.medium))
+            .rise(revealed, motion(.spring(duration: 0.6, bounce: 0.25).delay(0.65)))
         }
         .padding(EdgeInsets(top: 20, leading: 20, bottom: 18, trailing: 20))
         .frame(width: 320)
         .modifier(CardSurface())
         // Room for the shadow, inside the window.
         .padding(18)
-        .offset(x: shown || !live ? 0 : 40)
-        .opacity(shown || !live ? 1 : 0)
+        .scaleEffect(shown ? 1 : 0.94, anchor: .topTrailing)
+        .offset(x: shown ? 0 : 60)
+        .opacity(shown ? 1 : 0)
         .containerBackground(.clear, for: .window)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
@@ -80,7 +99,9 @@ struct CardView: View {
         // Each fresh connection starts the stay again: seven seconds, longer while the pointer
         // rests on the card.
         .task(id: headset.arrivals) {
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.26)) { shown = true }
+            self.revealed = false
+            withAnimation(motion(.spring(duration: 0.55, bounce: 0.3))) { self.shown = true }
+            self.revealed = true
             do {
                 try await Task.sleep(for: .seconds(7))
                 while hovering {
@@ -94,11 +115,17 @@ struct CardView: View {
     }
 
     private func leave() {
-        withAnimation(reduceMotion ? nil : .easeIn(duration: 0.16)) {
+        withAnimation(motion(.easeIn(duration: 0.16))) {
             shown = false
         } completion: {
+            revealed = false
             dismissWindow(id: CardScene.id)
         }
+    }
+
+    /// None at all where the user asked for less motion.
+    private func motion(_ animation: Animation) -> Animation? {
+        reduceMotion ? nil : animation
     }
 
     private func status(_ snapshot: Snapshot) -> String {
@@ -110,6 +137,15 @@ struct CardView: View {
         case .ambient: return snapshot.maxAmbientLevel > 0 ? "Ambient sound, level \(noise.ambientLevel - snapshot.minAmbientLevel + 1)" : "Ambient sound is on"
         case .off: return "Noise control is off"
         }
+    }
+}
+
+private extension View {
+    /// Fades in and rises a little into place.
+    func rise(_ on: Bool, _ animation: Animation?) -> some View {
+        opacity(on ? 1 : 0)
+            .offset(y: on ? 0 : 10)
+            .animation(animation, value: on)
     }
 }
 
