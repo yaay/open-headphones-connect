@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::models;
 use crate::platform::{Bluetooth, Headset, Incoming, Link};
@@ -184,16 +184,23 @@ impl Default for Arrival {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// What the user interface asks of the session. As JSON, for an interface
+/// that is not written in Rust: `"connect"`, `{"set_volume": 12}`,
+/// `{"set_switch": ["upscaling", true]}`, `{"set_noise": {…}}` with the
+/// fields the snapshot's `noise` has.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Command {
     SetNoise(NoiseState),
     SetEqPreset(u8),
+    #[serde(rename_all = "camelCase")]
     SetEqBands { clear_bass: Option<i8>, bands: Vec<i8> },
     SetVolume(u8),
     Transport(Transport),
     SetSwitch(Switch, bool),
     SetAutoPowerOff(u8),
     /// Raised by the session itself when the headset asks a question.
+    #[serde(skip)]
     AnswerAlert { message: u8, yes: bool },
     PowerOff,
     Connect,
@@ -1464,6 +1471,25 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn commands_read_from_the_json_an_interface_sends() {
+        let read = |json| serde_json::from_str::<Command>(json).ok();
+        assert_eq!(read(r#""connect""#), Some(Command::Connect));
+        assert_eq!(read(r#"{"set_volume": 12}"#), Some(Command::SetVolume(12)));
+        assert_eq!(read(r#"{"transport": "next"}"#), Some(Command::Transport(Transport::Next)));
+        assert_eq!(read(r#"{"set_switch": ["upscaling", true]}"#), Some(Command::SetSwitch(Switch::Upscaling, true)));
+        assert_eq!(
+            read(r#"{"set_eq_bands": {"clearBass": null, "bands": [1, -2]}}"#),
+            Some(Command::SetEqBands { clear_bass: None, bands: vec![1, -2] })
+        );
+        // The same fields a snapshot's `noise` has, so it can be sent straight back.
+        let noise = NoiseState { mode: NoiseMode::Ambient, ambient_level: 7, focus_on_voice: true };
+        let sent = format!(r#"{{"set_noise": {}}}"#, serde_json::to_string(&noise).unwrap());
+        assert_eq!(read(&sent), Some(Command::SetNoise(noise)));
+        // Only the session answers the headset's questions.
+        assert_eq!(read(r#"{"answer_alert": {"message": 1, "yes": true}}"#), None);
+    }
 
     #[test]
     fn headline_battery_prefers_the_headset_then_the_weaker_bud() {

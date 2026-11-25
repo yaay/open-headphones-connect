@@ -56,8 +56,18 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: core
+          workspaces: |
+            core
+            macos/bridge
 
       - name: Test the shared core
         working-directory: core
         run: cargo test
+
+      # Compiled only: they need a Bluetooth permission no build machine has. `package`
+      # compiles the app for Apple silicon and for Intel.
+      - name: Build the Mac app and its tools
+        run: |
+          BUILD_ONLY=1 macos/run.sh probe
+          BUILD_ONLY=1 macos/run.sh session
+          BUILD_ONLY=1 macos/run.sh package
