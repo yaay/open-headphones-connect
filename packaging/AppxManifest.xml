@@ -3,7 +3,7 @@
   The MSIX package manifest for the Microsoft Store version.
   build-msix.ps1 fills in the {{…}} values: the identity comes from
   store-identity.json (copied from Partner Center), the version from
-  src-tauri/tauri.conf.json.
+  src-tauri/tauri.conf.json, the architecture from what is being packaged.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -17,7 +17,7 @@
     Name="{{IdentityName}}"
     Publisher="{{Publisher}}"
     Version="{{Version}}"
-    ProcessorArchitecture="x64" />
+    ProcessorArchitecture="{{Arch}}" />
 
   <Properties>
     <DisplayName>{{DisplayName}}</DisplayName>

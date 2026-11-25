@@ -46,6 +46,70 @@ jobs:
         working-directory: src-tauri
         run: cargo test --lib
 
+  # The same app built on, and for, a Windows on ARM machine. Few development
+  # PCs have the tools for that, so the installer a release ships for ARM PCs
+  # is the one this job keeps.
+  windows-on-arm:
+    name: Windows on ARM
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Build the UI
+        run: npm run build
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core
+            src-tauri
+
+      - name: Test the shared core
+        working-directory: core
+        run: cargo test
+
+      - name: Test the Windows app
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      - name: Build the app and its installer
+        run: npx tauri build
+
+      # No build machine has headphones, so this is the demo mode: made-up
+      # headphones connect and the card comes up. It shows that the program,
+      # its window and its interface all start on ARM. Started the way Windows
+      # starts it at sign-in, because a start by hand opens the panel instead.
+      - name: Start the app with made-up headphones
+        shell: pwsh
+        run: |
+          $log = "$env:LOCALAPPDATA\dev.openheadphonesconnect.desktop\logs\app.log"
+          $app = Start-Process "src-tauri\target\release\open-headphones-connect.exe" -ArgumentList "--autostart", "--demo", "WH-1000XM5" -PassThru
+          $said = { if (Test-Path $log) { Get-Content $log } }
+          $shown = { [bool](& $said | Select-String "Showing Card" -Quiet) }
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Get-Date) -lt $deadline -and -not $app.HasExited -and -not (& $shown)) { Start-Sleep -Seconds 1 }
+          & $said
+          if ($app.HasExited) { throw "The app stopped on its own (exit code $($app.ExitCode))." }
+          Stop-Process -Id $app.Id -Force
+          if (-not (& $shown)) { throw "The connect card did not come up." }
+          Write-Host "The app started and showed the connect card."
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-arm64
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/open-headphones-connect.exe
+          if-no-files-found: error
+
   # The protocol and session code is shared with the Mac app, so it has to
   # build and pass its tests there too.
   core-on-macos:
