@@ -5,17 +5,58 @@
 //     macos/run.sh app --demo WH-1000XM5            # with made-up ones; Bluetooth is left alone.
 //                                                   # Disconnect and Connect replay the card.
 //     macos/run.sh app --demo WF-1000XM5 --render panel.png [card] [dark] [refused] [--scale 4]
-//                                                   # a picture of the panel or the card, then quit;
-//                                                   # `refused` as if Bluetooth were not allowed,
-//                                                   # `--scale` for more pixels than the screen's 2
+//                                                   # a picture of the panel or the card, then
+//                                                   # quit; `refused` as if Bluetooth were not
+//                                                   # allowed, `--scale` for more pixels than the
+//                                                   # screen's 2
 //     … --render panel.png --send '{"set_eq_preset": 16}'
 //                                                   # after that command, or several, has been sent
 
 import AppKit
-import RealityKit
+import CoreBluetooth
 import SwiftUI
 
 let headset = Headset()
+
+
+/// macOS's Bluetooth service can restart under a running app. IOBluetooth, which the session uses,
+/// does not get over that: from then on it calls the headphones not connected, while a freshly
+/// started app sees them. CoreBluetooth does notice, so once the service is back the app starts
+/// itself again.
+final class BluetoothRestart: NSObject, CBCentralManagerDelegate {
+    static let shared = BluetoothRestart()
+    private var manager: CBCentralManager?
+    private var lost = false
+
+    func watch() {
+        // Not on the main queue: IOBluetooth's first call there waits for CoreBluetooth, which
+        // would in turn wait for the main queue to take this manager's news, and the app froze.
+        let queue = DispatchQueue(label: "bluetooth-restart")
+        manager = CBCentralManager(delegate: self, queue: queue, options: [CBCentralManagerOptionShowPowerAlertKey: false])
+    }
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        switch central.state {
+        case .resetting:
+            lost = true
+        case .unknown:
+            break
+        default:
+            guard lost else { return }
+            lost = false
+            DispatchQueue.main.async {
+                let fresh = NSWorkspace.OpenConfiguration()
+                fresh.createsNewApplicationInstance = true
+                fresh.activates = false
+                NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: fresh) { _, error in
+                    if error == nil {
+                        DispatchQueue.main.async { NSApp.terminate(nil) }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @main
 enum Main {
@@ -25,6 +66,7 @@ enum Main {
             arguments.firstIndex(of: flag).flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
         }
         let demo = value(after: "--demo")
+        UserDefaults.standard.register(defaults: [Preference.connectCard: true])
         if let picture = value(after: "--render") {
             headset.start(demo: demo)
             // Long enough for a real headset to have said what it has; a made-up one is quick.
@@ -39,52 +81,44 @@ enum Main {
             }
             let card = arguments.contains("card")
             let refused = Panel.bluetoothRefused || arguments.contains("refused")
-            render(card ? AnyView(CardView(headset: headset)) : AnyView(Panel(headset: headset, refused: refused).background(Color(nsColor: .windowBackgroundColor))),
+            let panel = Panel(headset: headset, refused: refused).background(Color(nsColor: .windowBackgroundColor))
+            render(card ? AnyView(CardView(headset: headset, live: false)) : AnyView(panel),
                    to: picture, dark: arguments.contains("dark"), scale: value(after: "--scale").flatMap(Int.init) ?? 2)
         } else {
-            headset.onConnect = { Card.show(headset) }
+            Shortcut.shared.action = { headset.toggleNoise() }
+            Shortcut.shared.enabled = UserDefaults.standard.bool(forKey: Preference.shortcut)
+            if demo == nil {
+                BluetoothRestart.shared.watch()
+            }
             headset.start(demo: demo)
             OpenHeadphonesConnect.main()
         }
     }
 
     /// Draws a view, with everything in it opened up, into a PNG file: a look at it without a
-    /// screen, and without a headset when it is a made-up one.
+    /// screen, and without a headset when it is a made-up one. A 3D view cannot be drawn this
+    /// way, so the card shows its still picture instead.
     private static func render(_ content: AnyView, to path: String, dark: Bool, scale: Int) {
         UserDefaults.standard.register(defaults: ["eq-open": true, "headphone-settings-open": true])
-        let view = NSHostingView(rootView: content)
+        let controller = NSHostingController(rootView: content)
+        controller.safeAreaRegions = []
+        let view = controller.view
         view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        view.safeAreaRegions = []
         // In a window, so that the controls draw as they do on screen.
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: view.fittingSize), styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        // The panel measures itself and then takes its size, which needs a turn of the run loop.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        // The least size the view accepts, which is the size a menu-bar window gives it. A view
+        // that can shrink shows here as it would there: shrunk.
+        window.setContentSize(controller.sizeThatFits(in: .zero))
         view.layoutSubtreeIfNeeded()
         let bitmap = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: Int((view.bounds.width * CGFloat(scale)).rounded()), pixelsHigh: Int((view.bounds.height * CGFloat(scale)).rounded()),
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         bitmap.size = view.bounds.size
         view.cacheDisplay(in: view.bounds, to: bitmap)
-
-        // The 3D model draws itself apart from the rest, so its picture is asked for and laid in.
-        func models(in view: NSView) -> [ARView] {
-            view.subviews.flatMap { ($0 as? ARView).map { [$0] } ?? models(in: $0) }
-        }
-        for model in models(in: view) {
-            // Once it has spun into place.
-            RunLoop.main.run(until: Date().addingTimeInterval(2.5))
-            var picture: NSImage?
-            var answered = false
-            model.snapshot(saveToHDR: false) { picture = $0; answered = true }
-            while !answered {
-                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-            }
-            var place = model.convert(model.bounds, to: view)
-            place.origin.y = view.bounds.height - place.maxY
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-            picture?.draw(in: place)
-            NSGraphicsContext.restoreGraphicsState()
-        }
         try! bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     }
 }
@@ -94,12 +128,29 @@ struct OpenHeadphonesConnect: App {
         MenuBarExtra {
             Panel(headset: headset)
         } label: {
-            // The battery beside the icon, as in the Windows tray.
+            MenuBarLabel()
+        }
+        .menuBarExtraStyle(.window)
+        CardScene()
+    }
+}
+
+/// The item in the menu bar: the headphones, with the battery beside them as in the Windows
+/// tray. It is always there, so it is also what opens the card when they connect afresh.
+private struct MenuBarLabel: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        HStack(spacing: 4) {
             Image(systemName: "headphones")
             if let battery = headset.snapshot.headlineBattery {
                 Text("\(battery.level)%")
             }
         }
-        .menuBarExtraStyle(.window)
+        .onChange(of: headset.arrivals) {
+            if UserDefaults.standard.bool(forKey: Preference.connectCard) {
+                openWindow(id: CardScene.id)
+            }
+        }
     }
 }

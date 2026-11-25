@@ -14,11 +14,11 @@ The same thing the Windows app is: a card with a 3D model of the headphones when
 and a small panel from the menu bar for battery, noise control, the equalizer and the headset's
 switches.
 
-- A native Swift app (SwiftUI and AppKit), living in the menu bar. Not the Windows interface in
-  a web view.
-- Public macOS APIs only. The connect card is the app's own floating panel (a borderless,
-  non-activating `NSPanel`), not Apple's system banner: that one sits in a private framework,
-  breaks with macOS updates and rules out the Mac App Store.
+- A native Swift app (SwiftUI), living in the menu bar. Not the Windows interface in a web
+  view.
+- Public macOS APIs only. The connect card is the app's own floating window, not Apple's
+  system banner: that one sits in a private framework, breaks with macOS updates and rules out
+  the Mac App Store.
 - The protocol and the session come from `core/`, the Rust crate the Windows app uses, built
   into the Mac app as a static library. One implementation, one set of tests.
 - Only artwork with a licence that allows redistribution. The WH-1000XM5 model in
@@ -147,29 +147,98 @@ Not tried:
 
 ## The panel
 
-`macos/app/` is the app: SwiftUI, for macOS 14 and later.
+`macos/app/` is the app: SwiftUI, for macOS 15 and later.
 
 - `App.swift`: the item in the menu bar (a `MenuBarExtra` in window style, with the battery
   beside the icon as in the Windows tray) and the command-line flags below.
-- `Panel.swift`: the panel, section for section what `src/Panel.tsx` is, in stock controls.
+- `Panel.swift`: the panel. `Settings.swift`: the app's own settings in its ⋯ menu.
 - `Headset.swift`: the snapshot as Swift types, and the commands as JSON.
 
 ```sh
 macos/run.sh app                              # with your headphones
 macos/run.sh app --demo WH-1000XM5            # with made-up ones; Bluetooth is left alone
-macos/run.sh app --demo WF-1000XM5 --render panel.png [dark]
-                                              # a picture of the panel, then quit
+macos/run.sh app --demo WF-1000XM5 --render panel.png [card] [dark]
+                                              # a picture of the panel or the card, then quit
 ```
 
-`--demo` is the core's demo mode, as on Windows. `--render` draws the panel off screen with
-everything in it opened up, which is how to look at a change without a headset or a screen.
+`--demo` is the core's demo mode, as on Windows. `--render` draws the panel off screen, which
+is how to look at a change without a headset or a screen; `-eq-open YES`,
+`-headphone-settings-open YES` and `-devices-open YES` after it open the sections that are
+closed until asked for.
+
+Everything in the panel is a stock control in its stock style: SwiftUI's, except the
+equalizer's band sliders, which are AppKit's `NSSlider`, SwiftUI having no upright slider on the
+Mac. On macOS 26 their fill, and Clear Bass's, grows from 0 both ways. Tried on screen: the
+sliders drag and set the equalizer as they should. Top to bottom: a still
+of the card's 3D model (`models/portrait.png`, made by `models/portrait.swift`) with the
+headphones' name, state and a gauge for each battery; noise control as a button for each
+mode, with the ambient level, voice focus and the NC Optimizer under it; the equalizer, an
+upright slider for each band with tick marks and a scale beside them, and Clear Bass across the
+bottom; the devices the headphones are paired with; the settings kept in the
+headphones, the job of each button among them; and a foot with Disconnect and a ⋯ menu.
+
+The ⋯ menu has Power off (which asks first, as the Mac does before shutting down), Bluetooth
+settings and Quit, and the app's own settings as items that tick on and off: open at login
+(through `SMAppService`; where macOS wants the user's say, it opens Login Items in System
+Settings), a card when the headphones connect, and a global ⌥⌘A that switches between noise
+cancelling and ambient sound, registered as a hot key so that it needs no permission. "Copy
+Diagnostics Report" puts what the app knows on the clipboard for a problem report, leaving out
+names and addresses.
 
 Every control shows what the session reports and sends a command when changed; the session
-shows a change at once, so nothing is kept in the panel itself. A slider follows the pointer
-while it is dragged and the headset otherwise.
+shows a change at once, so nothing is kept in the panel itself. A slider or fader follows the
+pointer while it is dragged and the headset otherwise.
 
-Drawn with `--render` from a real WH-1000XM3, the panel shows that headset's four noise modes,
-equalizer, three switches and automatic power-off, and its controls work on that headset.
+Three things beyond what the Windows panel has, all of them in `core`, so that it can have
+them too:
+
+- **The NC Optimizer** of the WH-1000XM3 and XM4 (`Command::StartOptimizer`, the snapshot's
+  `optimizer`). A run plays tones in the wearer's ears, so the panel asks before starting one.
+- **What a button or touch surface does** (`Command::SetAssignment`, `assignments`). On the
+  WH-1000XM3 that is its custom button, which the headset describes as a general setting with
+  three choices. Second-generation headsets have their own messages for it.
+- **The devices the headphones are paired with** (`devices`, and `Command::ConnectDevice`,
+  `DisconnectDevice` and `SelectSource`), on second-generation headsets with multipoint.
+
+Tried with a real WH-1000XM3: the panel shows its four noise modes, equalizer, three switches,
+automatic power-off, what its custom button does, and its optimizer as idle and last run at
+1.0 atm. Its controls work on it, a run of the optimizer and changing what the custom button
+does among them.
+
+Not tried on a headset: everything about paired devices and second-generation keys, which
+rests on the recorded WF-1000XM5 and LinkBuds Clip sessions for reading, and on libmdr's and
+acouplet's agreeing accounts for writing. The message that lists which jobs a
+second-generation key can have is in no recording at all.
+
+Two things a menu-bar window does that are easy to trip over:
+
+- It takes the least height its content will accept. A scroller accepts none, so a panel
+  built around one collapses to its head and foot. The panel measures its controls and gives
+  the scroller that height outright, or the screen's if that is less. `--render` sizes its
+  window the same way, so this shows off screen too.
+- Controls in a window that is not in front lose their colour, and so does anything drawn off
+  screen: in `--render` the mode in effect and switches that are on come out grey.
+
+Checked against Apple's Human Interface Guidelines (Designing for macOS, The menu bar,
+Disclosure controls, Menus, Buttons, Writing, Panels, Notifications), November 2026:
+
+- Section titles open their sections as well as the triangle beside them. SwiftUI's
+  `DisclosureGroup` on the Mac answers only the triangle, so each title is a button too.
+- Menu items are verb phrases in title style without articles, with an ellipsis where more
+  input follows ("Power Off Headphones…") or another app opens ("Open Bluetooth Settings…"),
+  and icons for all of a group's items or none.
+- Labels of controls are in sentence style and section headings in title style, throughout.
+- Power off asks first, with a destructive button.
+
+Three places where the app departs from the guidelines, on purpose for now:
+
+- The menu bar extra opens a window-style panel, not a menu. The guidelines allow that when
+  the functionality is too complex for a menu, as sliders and an equalizer are.
+- The app lives only in the menu bar. The guidelines would have people choose whether the
+  menu bar extra is there, from the app's settings, with the app reachable otherwise (a Dock
+  icon and menu).
+- The card is the app's own notification-like window, which does not follow Focus as a
+  system notification would.
 
 When the user has refused the app Bluetooth, the session cannot tell: it sees Bluetooth as
 off, or nothing paired. The panel asks `CBCentralManager.authorization` instead and says so,
@@ -178,23 +247,36 @@ with a button to the right page of System Settings. That screen has only been dr
 
 Left out on purpose: volume and playback, which a Mac has its own controls for. Not there yet:
 
-- The settings page (start at login, the connect card's switch, the low-battery warning).
-- A picture of the headphones in the header, which has a symbol for now.
+- A warning when the battery runs low.
+- Trying the app's own settings: they are built, not yet used. Opening at login may want the
+  app in Applications and signed with a certificate.
+- The same three additions in the Windows panel.
 - At first launch the menu-bar item does not respond until the permission question is
   answered: the first IOBluetooth call happens on the main thread.
 
 ## The card
 
-`macos/app/Card.swift` is the card: a borderless, non-activating `NSPanel` that slides in under
-the menu bar at the right, where notifications appear, with the headphones' name, the 3D model
-spinning into place, the battery and the noise mode. It stays seven seconds, longer while the
-pointer rests on it, and a click sends it away. It appears whenever the session counts a fresh
-connection, as on Windows, which includes the app starting with the headphones already on.
-Seen on screen with a WH-1000XM3, it looks and moves as it should.
+`macos/app/Card.swift` is the card: a SwiftUI `Window` with no frame, floating above other
+windows under the menu bar at the right, where notifications appear, with the headphones'
+name, the 3D model spinning into place, the battery and the noise mode. It stays seven
+seconds, longer while the pointer rests on it, and a click sends it away. It appears whenever
+the session counts a fresh connection, as on Windows, which includes the app starting with the
+headphones already on. The menu-bar item is what opens it, being the one view that is always
+there.
 
-The model is drawn with RealityKit (an `ARView`, which works without AR on a Mac), since
-SceneKit is on its way out. The entrance, the resting pose, the lights and the framing are
-those of `src/Headphones3D.tsx`, number for number.
+On macOS 26 and later the card's ground is Liquid Glass, as a notification's is; on macOS 15
+it is the frosted material with a shadow. Everything else takes on Liquid Glass by itself on
+macOS 26, being stock controls, menus and windows; the panel has no glass of its own, since
+Apple advises against glass on glass.
+
+Opened while another app is in use, the card does not take the focus from it (tried with
+Safari in front). Seen on screen, card and panel look as they should. It needs macOS 15, for
+the frameless, floating, placed window and for `RealityView`; on macOS 14 the card would have
+to be an AppKit panel.
+
+The model is drawn with RealityKit, since SceneKit is on its way out. The entrance, the
+resting pose, the lights and the framing are those of `src/Headphones3D.tsx`, number for
+number.
 
 RealityKit loads USDZ, so `macos/app/models/export.ts` writes the model built in
 `src/headphoneModel.ts` out as `headphones.usdz`, which is committed:
@@ -213,16 +295,17 @@ Three things the conversion has to do, each found by a wrong picture:
 - The exporter writes text. `usdcat` and `usdzip`, which macOS comes with, make it binary, a
   quarter of the size.
 
-`macos/run.sh app --demo WH-1000XM3 --render card.png card [dark]` draws the card off screen,
-model included.
+`macos/run.sh app --demo WH-1000XM3 --render card.png card` draws the card off screen, with
+the still in place of the 3D model and without its glass, neither of which can be drawn that
+way.
 
 Not there yet:
 
 - The WH-1000XM5 model in `src/assets/models/`: every headset gets the built-in one.
 - The silver finish, and the user's own models (`docs/custom-model.md`).
 - Opening the panel by clicking the card: a `MenuBarExtra` cannot be opened from code.
-- The switch for the card in settings, and `register(forConnectNotifications:)`: the card
-  follows the session, which notices a headset a second or two after macOS does.
+- `register(forConnectNotifications:)`: the card follows the session, which notices a headset
+  a second or two after macOS does.
 - The battery counting up, and the text rising in.
 
 ## Packaging
@@ -270,7 +353,6 @@ Not tried:
   signs the app and the disk image, sends the image to Apple, waits, and staples the answer
   to it.
 
-Not there yet: starting at login, which belongs with the settings page.
 
 ## The Mac App Store
 

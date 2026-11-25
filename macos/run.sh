@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the Mac app, or one of the two command-line tools, into an app bundle and runs it.
 #
-#     macos/run.sh app [--demo MODEL] [--render FILE [card] [dark]]   # app/: see app/App.swift
+#     macos/run.sh app [--demo MODEL] [--render FILE [card | settings]]   # app/: see app/App.swift
 #     macos/run.sh probe                         # probe/main.swift: IOBluetooth alone
 #     macos/run.sh session [seconds] [command]   # session/main.swift: the session, through the bridge
 #     macos/run.sh package                       # the app for other people's Macs: optimised, for
@@ -60,7 +60,7 @@ compile() {
     *) rust=x86_64-apple-darwin ;;
     esac
     cargo build --release --manifest-path "$here/bridge/Cargo.toml" --target "$rust"
-    swiftc "$@" -target "$arch-apple-macos14.0" "$here/bridge/HeadsetSession.swift" \
+    swiftc "$@" -target "$arch-apple-macos15.0" "$here/bridge/HeadsetSession.swift" \
         -import-objc-header "$here/bridge/ohc_bridge.h" -L "$here/bridge/target/$rust/release" -lohc_bridge -o "$output"
 }
 case "$tool" in
@@ -86,7 +86,7 @@ esac
 version=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$here/../package.json")
 case "$tool" in
 app | package | store)
-    cp "$here"/app/models/*.usdz "$here/../src-tauri/icons/icon.icns" "$here/../LICENSE" "$app/Contents/Resources/"
+    cp "$here"/app/models/*.usdz "$here"/app/models/portrait.png "$here/../src-tauri/icons/icon.icns" "$here/../LICENSE" "$app/Contents/Resources/"
     ;;
 esac
 cat > "$app/Contents/Info.plist" <<PLIST
@@ -102,7 +102,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>CFBundleVersion</key><string>${BUILD:-$version}</string>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
-<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>LSUIElement</key><true/>
 <key>NSBluetoothAlwaysUsageDescription</key><string>$why</string>
 </dict></plist>

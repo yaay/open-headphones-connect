@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use ohc_core::platform::{Bluetooth, Headset, Incoming, Link};
 use ohc_core::protocol::framing::{pack, unpack, Frame, Reassembler, TYPE_ACK};
-use ohc_core::protocol::{Generation, NoiseMode};
+use ohc_core::protocol::{Generation, NoiseMode, OptimizerPhase};
 use ohc_core::session::{self, Phase, Snapshot};
 
 /// Everything the recorded headset said, acknowledgements left out.
@@ -116,7 +116,12 @@ fn a_recorded_xm3_connects_and_reports_what_the_real_one_did() {
 
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut last = Snapshot::default();
-    while !(last.phase == Phase::Connected && last.firmware.is_some() && last.eq.is_some()) {
+    while !(last.phase == Phase::Connected
+        && last.firmware.is_some()
+        && last.eq.is_some()
+        && last.optimizer.is_some_and(|optimizer| optimizer.pressure.is_some())
+        && !last.assignments.is_empty())
+    {
         let left = deadline.saturating_duration_since(Instant::now());
         last = snapshots.recv_timeout(left).unwrap_or_else(|_| panic!("the session got no further than {last:?}"));
     }
@@ -133,4 +138,16 @@ fn a_recorded_xm3_connects_and_reports_what_the_real_one_did() {
     );
     // A WH-1000XM3 does not list power-off among its functions.
     assert!(!last.can_power_off);
+
+    // Its NC Optimizer: idle, about thirteen seconds a run, last run at 0.8 atm.
+    let optimizer = last.optimizer.expect("no optimizer");
+    assert_eq!(optimizer.phase, OptimizerPhase::Idle);
+    assert_eq!((optimizer.seconds, optimizer.fit_measured, optimizer.pressure), (13, true, Some(8)));
+    // Its custom button, set to noise control, with the two assistants on offer.
+    assert_eq!(last.assignments.len(), 1);
+    assert_eq!((last.assignments[0].key.as_str(), last.assignments[0].button), ("custom", true));
+    assert_eq!(last.assignments[0].function, "noise_control");
+    assert_eq!(last.assignments[0].options, ["noise_control", "google_assistant", "amazon_alexa"]);
+    // It has no multipoint, so no list of devices.
+    assert!(last.devices.is_empty());
 }

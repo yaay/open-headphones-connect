@@ -12,8 +12,9 @@ use crate::models;
 use crate::platform::{Bluetooth, Headset, Incoming, Link};
 use crate::protocol::framing::{pack, Frame, TYPE_ACK, TYPE_DATA_MDR, TYPE_DATA_MDR_NO2};
 use crate::protocol::{
-    eq_preset_is_editable, v1, v2, Battery, BatterySlot, EqState, Event, Generation, NoiseMode,
-    NoiseState, Playback, Switch, Transport, EQ_MANUAL,
+    assign, eq_preset_is_editable, v1, v2, AssignableKey, Assignment, Battery, BatterySlot, DeviceKind,
+    EqState, Event, Generation, NoiseMode, NoiseState, Optimizer, OptimizerPhase, PairedDevice, Playback,
+    Switch, Transport, EQ_MANUAL,
 };
 
 const ACK_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -25,6 +26,11 @@ const RESCAN_EVERY: Duration = Duration::from_secs(30);
 /// How long after the user flips a switch a question from the headset is
 /// taken to be about that switch.
 const CONSENT_WINDOW: Duration = Duration::from_secs(15);
+
+/// The general setting by which the WH-1000XM3 says what its custom button
+/// does, and the number second-generation headsets give that button.
+const BUTTON_SETTING: &str = "ASSIGNABLE_KEY_SETTING";
+const CUSTOM_KEY: u8 = 0x02;
 
 /// With `OHC_TRACE=1` in the environment every message to and from the
 /// headset is written to the log: the way to see what an untested model says.
@@ -112,6 +118,14 @@ pub struct Snapshot {
     /// The automatic power-off choice in effect, with the choices on offer.
     pub auto_power_off: Option<u8>,
     pub auto_power_off_options: Vec<u8>,
+    /// The NC Optimizer, on headsets that have one.
+    pub optimizer: Option<Optimizer>,
+    /// The buttons and touch surfaces whose job can be chosen.
+    pub assignments: Vec<Assignment>,
+    /// The devices the headset is paired with, where it says.
+    pub devices: Vec<PairedDevice>,
+    /// Whether the sound can be moved from one connected device to another.
+    pub can_select_source: bool,
     pub pending: Option<Pending>,
     /// A problem worth telling the user about, already phrased for them.
     pub notice: Option<String>,
@@ -199,9 +213,26 @@ pub enum Command {
     Transport(Transport),
     SetSwitch(Switch, bool),
     SetAutoPowerOff(u8),
+    /// Starts a run of the NC Optimizer, or stops the one under way.
+    StartOptimizer,
+    CancelOptimizer,
+    /// Gives a button or touch surface a job: one of its
+    /// [`Assignment::options`].
+    SetAssignment { key: String, function: String },
+    /// Has the headset connect to a device it is paired with, let go of one,
+    /// or take its sound from one, by the device's address.
+    ConnectDevice(String),
+    DisconnectDevice(String),
+    SelectSource(String),
     /// Raised by the session itself when the headset asks a question.
     #[serde(skip)]
     AnswerAlert { message: u8, yes: bool },
+    /// Raised by the session itself: read what the optimizer measured, or
+    /// the list of paired devices, again.
+    #[serde(skip)]
+    ReadOptimizerResult,
+    #[serde(skip)]
+    ReadDevices,
     PowerOff,
     Connect,
     Disconnect,
@@ -310,6 +341,41 @@ fn demo_snapshot(model: &str, connections: u64) -> Snapshot {
         playback: Some(Playback::Paused),
         auto_power_off: Some(0x00),
         auto_power_off_options: vec![0x00, 0x01, 0x02, 0x03, 0x11],
+        optimizer: (!models::is_earbuds(model)).then_some(Optimizer {
+            available: true,
+            seconds: 13,
+            fit_measured: true,
+            pressure: Some(10),
+            ..Optimizer::default()
+        }),
+        assignments: if models::is_earbuds(model) {
+            let jobs = ["noise_control", "playback", "volume", "none"].map(String::from).to_vec();
+            vec![
+                Assignment { key: "left".into(), button: false, function: "noise_control".into(), options: jobs.clone() },
+                Assignment { key: "right".into(), button: false, function: "playback".into(), options: jobs },
+            ]
+        } else {
+            vec![Assignment {
+                key: "custom".into(),
+                button: true,
+                function: "noise_control".into(),
+                options: ["noise_control", "google_assistant", "amazon_alexa"].map(String::from).to_vec(),
+            }]
+        },
+        devices: [
+            ("AA:BB:CC:00:00:01", "MacBook Pro", DeviceKind::Computer, true, true),
+            ("AA:BB:CC:00:00:02", "iPhone", DeviceKind::Phone, true, false),
+            ("AA:BB:CC:00:00:03", "Living Room TV", DeviceKind::Other, false, false),
+        ]
+        .map(|(address, name, kind, connected, source)| PairedDevice {
+            address: address.into(),
+            name: name.into(),
+            kind,
+            connected,
+            source,
+        })
+        .to_vec(),
+        can_select_source: true,
         connections,
         ..Snapshot::default()
     };
@@ -326,6 +392,8 @@ fn demo_snapshot(model: &str, connections: u64) -> Snapshot {
 
 fn apply_demo(snap: &mut Snapshot, model: &str, command: Command) {
     let connected = snap.phase == Phase::Connected;
+    let command_starts = command == Command::StartOptimizer;
+    let command_connects = matches!(command, Command::ConnectDevice(_));
     match command {
         Command::Connect if !connected => *snap = demo_snapshot(model, snap.connections + 1),
         Command::Disconnect | Command::PowerOff if connected => {
@@ -355,7 +423,34 @@ fn apply_demo(snap: &mut Snapshot, model: &str, command: Command) {
         Command::Transport(Transport::Pause) => snap.playback = Some(Playback::Paused),
         Command::SetSwitch(id, on) => snap.set_switch(id, on),
         Command::SetAutoPowerOff(choice) => snap.auto_power_off = Some(choice),
+        // A made-up run is over as soon as it starts.
+        Command::StartOptimizer | Command::CancelOptimizer => {
+            if let Some(optimizer) = snap.optimizer.as_mut() {
+                optimizer.phase =
+                    if command_starts { OptimizerPhase::Finished } else { OptimizerPhase::Idle };
+            }
+        }
+        Command::SetAssignment { key, function } => {
+            let shown = snap.assignments.iter_mut().find(|shown| shown.key == key);
+            if let Some(shown) = shown.filter(|shown| shown.options.contains(&function)) {
+                shown.function = function;
+            }
+        }
+        Command::ConnectDevice(address) | Command::DisconnectDevice(address) => {
+            if let Some(device) = snap.devices.iter_mut().find(|device| device.address == address) {
+                device.connected = command_connects;
+                device.source &= command_connects;
+            }
+        }
+        Command::SelectSource(address) => {
+            if snap.devices.iter().any(|device| device.address == address && device.connected) {
+                for device in &mut snap.devices {
+                    device.source = device.address == address;
+                }
+            }
+        }
         Command::Transport(_) | Command::AnswerAlert { .. } | Command::Connect => {}
+        Command::ReadOptimizerResult | Command::ReadDevices => {}
         Command::Disconnect | Command::PowerOff => {}
     }
 }
@@ -411,6 +506,9 @@ struct V2Link {
     /// The last equalizer message received, on the headset's own scale.
     eq_raw: Option<Vec<u8>>,
     voice_language: Option<u8>,
+    /// The keys whose job can be chosen, and the job each has, in one order.
+    keys: Vec<AssignableKey>,
+    presets: Vec<u8>,
 }
 
 enum Dialect {
@@ -434,6 +532,9 @@ struct Conn {
     general: Vec<(u8, Switch)>,
     /// General settings the headset has described so far.
     described: Vec<u8>,
+    /// The general setting that says what the custom button does, and the
+    /// jobs it lists, in its order.
+    button: Option<(u8, Vec<String>)>,
     dialect: Dialect,
 }
 
@@ -680,6 +781,7 @@ impl Session {
             support_functions2: None,
             general: Vec::new(),
             described: Vec::new(),
+            button: None,
             dialect: match generation {
                 // Guesses from the name, replaced by what the headset reports.
                 Generation::V1 => Dialect::V1(V1Link {
@@ -866,6 +968,12 @@ impl Session {
             self.send_optional(conn, &v1::get_auto_power_off_options())?;
             self.send_optional(conn, &v1::get_auto_power_off())?;
         }
+        if has(v1::function::NC_OPTIMIZER) {
+            self.snap.optimizer = Some(Optimizer::default());
+            self.send_optional(conn, &v1::get_optimizer_time())?;
+            self.send_optional(conn, &v1::get_optimizer_status())?;
+            self.send_optional(conn, &v1::get_optimizer_result())?;
+        }
         for slot in v1::function::GENERAL_SETTINGS {
             if has(slot) {
                 self.learn_general_setting(
@@ -930,6 +1038,14 @@ impl Session {
         if let Some(kind) = caps.voice_guidance {
             self.send_optional_as(conn, TYPE_DATA_MDR_NO2, &v2::get_voice_guidance(kind))?;
         }
+        if let Some(kind) = caps.assignable {
+            self.send_optional(conn, &v2::get_assignable_keys(kind))?;
+            self.send_optional(conn, &v2::get_assignments(kind))?;
+        }
+        if let Some(kind) = caps.devices {
+            self.snap.can_select_source = caps.source_switch;
+            self.send_optional_as(conn, TYPE_DATA_MDR_NO2, &v2::get_paired_devices(kind))?;
+        }
         Ok(())
     }
 
@@ -944,10 +1060,30 @@ impl Session {
     ) -> LinkResult<()> {
         self.send_optional(conn, describe)?;
         self.pump(conn, Duration::from_millis(600), false, |c, _| c.described.contains(&slot))?;
-        if conn.general.iter().any(|(known, _)| *known == slot) {
+        let is_button = conn.button.as_ref().is_some_and(|(known, _)| *known == slot);
+        if is_button || conn.general.iter().any(|(known, _)| *known == slot) {
             self.send_optional(conn, read)?;
         }
         Ok(())
+    }
+
+    /// Shows each key with the job it has, once the headset has said both.
+    fn show_assignments(&mut self, conn: &Conn) {
+        let Dialect::V2(link) = &conn.dialect else { return };
+        if link.keys.is_empty() || link.keys.len() != link.presets.len() {
+            return;
+        }
+        self.snap.assignments = link
+            .keys
+            .iter()
+            .zip(&link.presets)
+            .map(|(key, preset)| Assignment {
+                key: assign::key_name(key.key),
+                button: key.button,
+                function: assign::preset_name(*preset),
+                options: key.presets.iter().copied().map(assign::preset_name).collect(),
+            })
+            .collect();
     }
 
     fn state_queries(&self, conn: &Conn, everything: bool) -> Vec<Vec<u8>> {
@@ -1035,6 +1171,8 @@ impl Session {
 
     /// Returns `Ok(false)` when the link should be closed afterwards.
     fn execute(&mut self, conn: &mut Conn, command: Command) -> LinkResult<bool> {
+        let starts = command == Command::StartOptimizer;
+        let connects = matches!(command, Command::ConnectDevice(_));
         match command {
             Command::SetNoise(state) if self.snap.noise_modes.contains(&state.mode) => {
                 let (min, max) = (self.snap.min_ambient_level, self.snap.max_ambient_level);
@@ -1161,6 +1299,58 @@ impl Session {
                 self.hold_off = true;
                 return Ok(false);
             }
+            Command::StartOptimizer | Command::CancelOptimizer
+                if self.snap.optimizer.is_some() && matches!(conn.dialect, Dialect::V1(_)) =>
+            {
+                self.send(conn, &v1::set_optimizer(starts))?;
+                // The headset tells how the run goes. Asking once as well
+                // covers its first word being lost.
+                self.send_optional(conn, &v1::get_optimizer_status())?;
+            }
+            Command::ReadOptimizerResult if matches!(conn.dialect, Dialect::V1(_)) => {
+                self.send_optional(conn, &v1::get_optimizer_result())?;
+            }
+            Command::SetAssignment { key, function } => {
+                let Some((kind, payload, presets)) = self.assignment(conn, &key, &function) else { return Ok(true) };
+                // Shown at once, as the other settings are.
+                match &mut conn.dialect {
+                    Dialect::V2(link) => link.presets = presets,
+                    Dialect::V1(_) => {
+                        // The XM3 may ask whether to go ahead, as changing the
+                        // button can drop the connection for a moment. The
+                        // user has just said what they want.
+                        self.consent_until = Some(Instant::now() + CONSENT_WINDOW);
+                        if let Some(shown) = self.snap.assignments.first_mut() {
+                            shown.function = function;
+                        }
+                    }
+                }
+                self.show_assignments(conn);
+                self.publish();
+                self.send_as(conn, kind, &payload)?;
+            }
+            Command::ConnectDevice(address) | Command::DisconnectDevice(address)
+                if self.snap.devices.iter().any(|device| device.address == address) =>
+            {
+                let Dialect::V2(V2Link { caps: v2::Capabilities { devices: Some(kind), .. }, .. }) = &conn.dialect
+                else {
+                    return Ok(true);
+                };
+                let request = v2::connect_device(*kind, &address, connects);
+                self.send_as(conn, TYPE_DATA_MDR_NO2, &request)?;
+            }
+            Command::SelectSource(address)
+                if self.snap.can_select_source
+                    && self.snap.devices.iter().any(|device| device.address == address && device.connected) =>
+            {
+                self.send_as(conn, TYPE_DATA_MDR_NO2, &v2::select_source(&address))?;
+            }
+            Command::ReadDevices => {
+                if let Dialect::V2(V2Link { caps: v2::Capabilities { devices: Some(kind), .. }, .. }) = &conn.dialect {
+                    let query = v2::get_paired_devices(*kind);
+                    self.send_optional_as(conn, TYPE_DATA_MDR_NO2, &query)?;
+                }
+            }
             Command::Disconnect => {
                 self.disconnect_audio();
                 return Ok(false);
@@ -1174,9 +1364,37 @@ impl Session {
             | Command::Transport(_)
             | Command::SetSwitch(..)
             | Command::SetAutoPowerOff(_)
+            | Command::StartOptimizer
+            | Command::CancelOptimizer
+            | Command::ReadOptimizerResult
+            | Command::ConnectDevice(_)
+            | Command::DisconnectDevice(_)
+            | Command::SelectSource(_)
             | Command::PowerOff => {}
         }
         Ok(true)
+    }
+
+    /// The message that gives `key` the job `function`, the frame type it
+    /// travels in, and for a second-generation headset every key's job as it
+    /// will then be. `None` if the headset has no such key or job.
+    fn assignment(&self, conn: &Conn, key: &str, function: &str) -> Option<(u8, Vec<u8>, Vec<u8>)> {
+        match &conn.dialect {
+            Dialect::V1(_) => {
+                let (slot, jobs) = conn.button.as_ref()?;
+                let index = jobs.iter().position(|job| job == function)?;
+                (key == assign::key_name(CUSTOM_KEY))
+                    .then(|| (TYPE_DATA_MDR, v1::set_general_setting_choice(*slot, index as u8), Vec::new()))
+            }
+            Dialect::V2(link) => {
+                let kind = link.caps.assignable?;
+                let at = link.keys.iter().position(|known| assign::key_name(known.key) == key)?;
+                let preset = assign::preset_id(function).filter(|preset| link.keys[at].presets.contains(preset))?;
+                let mut presets = link.presets.clone();
+                *presets.get_mut(at)? = preset;
+                (presets.len() == link.keys.len()).then(|| (TYPE_DATA_MDR, v2::set_assignments(kind, &presets), presets))
+            }
+        }
     }
 
     /// Shows the equalizer as last received, read with the layout known now.
@@ -1297,7 +1515,61 @@ impl Session {
                 conn.described.push(slot);
                 match Switch::from_general_setting(&name) {
                     Some(switch) if boolean => conn.general.push((slot, switch)),
+                    _ if name == BUTTON_SETTING => {}
                     _ => crate::log!("General setting {slot:#04x} is {name}, which the app has no control for"),
+                }
+            }
+            Event::GeneralSettingList { slot, name, options } => {
+                if name == BUTTON_SETTING {
+                    conn.button = Some((slot, options.iter().map(|option| assign::element_name(option)).collect()));
+                }
+            }
+            Event::GeneralSettingChoice { slot, index } => {
+                let jobs = conn.button.as_ref().filter(|(known, _)| *known == slot).map(|(_, jobs)| jobs);
+                if let Some((jobs, job)) = jobs.and_then(|jobs| Some((jobs, jobs.get(index as usize)?))) {
+                    self.snap.assignments = vec![Assignment {
+                        key: assign::key_name(CUSTOM_KEY),
+                        button: true,
+                        function: job.clone(),
+                        options: jobs.clone(),
+                    }];
+                }
+            }
+            Event::OptimizerTime(seconds) => self.snap.optimizer.get_or_insert_with(Optimizer::default).seconds = seconds,
+            Event::OptimizerStatus { available, phase } => {
+                let optimizer = self.snap.optimizer.get_or_insert_with(Optimizer::default);
+                let just_finished = phase == OptimizerPhase::Finished && optimizer.phase != phase;
+                optimizer.available = available;
+                optimizer.phase = phase;
+                if just_finished {
+                    self.queue.push_back(Command::ReadOptimizerResult);
+                }
+            }
+            Event::OptimizerResult { fit_measured, pressure } => {
+                let optimizer = self.snap.optimizer.get_or_insert_with(Optimizer::default);
+                optimizer.fit_measured = fit_measured;
+                optimizer.pressure = pressure;
+            }
+            Event::AssignableKeys(keys) => {
+                if let Dialect::V2(link) = &mut conn.dialect {
+                    link.keys = keys;
+                }
+                self.show_assignments(conn);
+            }
+            Event::AssignedPresets(presets) => {
+                if let Dialect::V2(link) = &mut conn.dialect {
+                    link.presets = presets;
+                }
+                self.show_assignments(conn);
+            }
+            Event::PairedDevices(devices) => self.snap.devices = devices,
+            Event::DeviceAction { address, done, failed } => {
+                if failed {
+                    crate::log!("The headset would not do what was asked with {address}");
+                }
+                // The list follows by itself on most headsets; asking makes sure.
+                if done || failed {
+                    self.queue.push_back(Command::ReadDevices);
                 }
             }
             Event::GeneralSetting { slot, on } => {
@@ -1487,8 +1759,16 @@ mod tests {
         let noise = NoiseState { mode: NoiseMode::Ambient, ambient_level: 7, focus_on_voice: true };
         let sent = format!(r#"{{"set_noise": {}}}"#, serde_json::to_string(&noise).unwrap());
         assert_eq!(read(&sent), Some(Command::SetNoise(noise)));
-        // Only the session answers the headset's questions.
+        assert_eq!(read(r#""start_optimizer""#), Some(Command::StartOptimizer));
+        assert_eq!(
+            read(r#"{"set_assignment": {"key": "custom", "function": "google_assistant"}}"#),
+            Some(Command::SetAssignment { key: "custom".into(), function: "google_assistant".into() })
+        );
+        assert_eq!(read(r#"{"connect_device": "AA:BB:CC:00:00:01"}"#), Some(Command::ConnectDevice("AA:BB:CC:00:00:01".into())));
+        assert_eq!(read(r#"{"select_source": "AA:BB:CC:00:00:01"}"#), Some(Command::SelectSource("AA:BB:CC:00:00:01".into())));
+        // Only the session answers the headset's questions, and reads again.
         assert_eq!(read(r#"{"answer_alert": {"message": 1, "yes": true}}"#), None);
+        assert_eq!(read(r#""read_devices""#), None);
     }
 
     #[test]

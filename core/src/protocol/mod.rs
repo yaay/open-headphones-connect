@@ -92,6 +92,138 @@ impl Switch {
     }
 }
 
+/// Where the NC Optimizer is in a run.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OptimizerPhase {
+    #[default]
+    Idle,
+    /// Measuring how the headset sits on this wearer.
+    MeasuringFit,
+    MeasuringPressure,
+    Optimizing,
+    Finished,
+}
+
+/// The NC Optimizer: a run in which the headset plays test tones, measures
+/// how it sits on the wearer and the air pressure around it, and tunes its
+/// noise cancelling to both.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Optimizer {
+    pub phase: OptimizerPhase,
+    /// False while the headset will not start a run.
+    pub available: bool,
+    /// About how long a run takes, in seconds. 0 where the headset did not say.
+    pub seconds: u8,
+    /// Whether the wearer's fit has been measured at some time.
+    pub fit_measured: bool,
+    /// The air pressure last measured, in tenths of an atmosphere.
+    pub pressure: Option<u8>,
+}
+
+/// A button or touch surface on the headset whose job can be chosen.
+///
+/// Keys and jobs go by short names so that an interface can label the ones it
+/// knows and still show the rest: see [`assign`].
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Assignment {
+    pub key: String,
+    /// A button to press, as against a surface to tap.
+    pub button: bool,
+    /// What it does now, and everything it can be given to do.
+    pub function: String,
+    pub options: Vec<String>,
+}
+
+/// The names [`Assignment`] uses, and the numbers behind them.
+pub mod assign {
+    const KEYS: [(u8, &str); 6] =
+        [(0x00, "left"), (0x01, "right"), (0x02, "custom"), (0x03, "c"), (0x04, "nc_amb"), (0x05, "nc_amb")];
+
+    /// `AssignableSettingsPreset`: the jobs a key can have. The same numbers
+    /// in both generations, the second having added to them.
+    const PRESETS: [(u8, &str); 15] = [
+        (0x00, "noise_control"),
+        (0x10, "volume"),
+        (0x20, "playback"),
+        (0x21, "tracks"),
+        (0x30, "voice_assistant"),
+        (0x31, "google_assistant"),
+        (0x32, "amazon_alexa"),
+        (0x33, "tencent_xiaowei"),
+        (0x35, "noise_control_and_quick_access"),
+        (0x36, "quick_access"),
+        (0x38, "teams"),
+        (0x45, "noise_control_and_microphone"),
+        (0x46, "listening_mode_and_quick_access"),
+        (0x47, "noise_control_and_listening_mode"),
+        (0xFF, "none"),
+    ];
+
+    pub fn key_name(key: u8) -> String {
+        KEYS.iter().find(|(id, _)| *id == key).map_or_else(|| format!("key_{key:02x}"), |(_, name)| (*name).into())
+    }
+
+    pub fn preset_name(preset: u8) -> String {
+        PRESETS
+            .iter()
+            .find(|(id, _)| *id == preset)
+            .map_or_else(|| format!("preset_{preset:02x}"), |(_, name)| (*name).into())
+    }
+
+    /// The number behind a name [`preset_name`] gave.
+    pub fn preset_id(name: &str) -> Option<u8> {
+        PRESETS
+            .iter()
+            .find(|(_, known)| *known == name)
+            .map(|(id, _)| *id)
+            .or_else(|| u8::from_str_radix(name.strip_prefix("preset_")?, 16).ok())
+    }
+
+    /// The job behind one choice of the WH-1000XM3's button setting, which
+    /// names its choices in words: `ASSIGNABLE_KEY_ELEM_GOOGLE_ASSISTANT`.
+    pub fn element_name(element: &str) -> String {
+        match element.strip_prefix("ASSIGNABLE_KEY_ELEM_").unwrap_or(element) {
+            "NCASM" => "noise_control".into(),
+            other => other.to_ascii_lowercase(),
+        }
+    }
+}
+
+/// What kind of thing a paired device is, as far as its Bluetooth class says.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceKind {
+    Computer,
+    Phone,
+    Other,
+}
+
+/// A device the headset is paired with. A headset with multipoint can be
+/// connected to two at once, and plays the sound of one of them.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PairedDevice {
+    /// As the headset writes it: `AA:BB:CC:DD:EE:FF`.
+    pub address: String,
+    pub name: String,
+    pub kind: DeviceKind,
+    pub connected: bool,
+    /// Whether the sound is this device's right now.
+    pub source: bool,
+}
+
+/// A second-generation key as the headset describes it: what it is, and the
+/// jobs (`AssignableSettingsPreset` numbers) it can be given.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AssignableKey {
+    pub key: u8,
+    pub button: bool,
+    pub presets: Vec<u8>,
+}
+
 /// How a headset's noise control is laid out, as the headset describes it.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct NoiseCapability {
@@ -159,6 +291,22 @@ pub enum Event {
     /// What one of the headset's numbered "general settings" is.
     GeneralSettingInfo { slot: u8, name: String, boolean: bool },
     GeneralSetting { slot: u8, on: bool },
+    /// A general setting that is one choice among several, each named, and
+    /// which of them is chosen.
+    GeneralSettingList { slot: u8, name: String, options: Vec<String> },
+    GeneralSettingChoice { slot: u8, index: u8 },
+    /// About how long a run of the NC Optimizer takes, in seconds.
+    OptimizerTime(u8),
+    OptimizerStatus { available: bool, phase: OptimizerPhase },
+    OptimizerResult { fit_measured: bool, pressure: Option<u8> },
+    /// The keys whose job can be chosen, and the job each has, in the same
+    /// order.
+    AssignableKeys(Vec<AssignableKey>),
+    AssignedPresets(Vec<u8>),
+    PairedDevices(Vec<PairedDevice>),
+    /// How connecting to, disconnecting from or switching to a paired device
+    /// went, as far as the headset has got with it.
+    DeviceAction { address: String, done: bool, failed: bool },
     VoiceGuidanceLanguage(u8),
     /// The headset is asking a question and waits for a reply.
     Alert { message: u8, wants_choice: bool },
