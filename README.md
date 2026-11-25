@@ -1,7 +1,7 @@
 # Open Headphones Connect
 
-An unofficial, open-source companion for Sony headphones on Windows 11. Not made by or
-affiliated with Sony.
+An unofficial, open-source companion for Sony headphones on Windows 11 and macOS. Not made by
+or affiliated with Sony.
 
 [![Build](https://github.com/yaay/open-headphones-connect/actions/workflows/ci.yml/badge.svg)](https://github.com/yaay/open-headphones-connect/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/yaay/open-headphones-connect)](https://github.com/yaay/open-headphones-connect/releases/latest)
@@ -15,23 +15,42 @@ affiliated with Sony.
 
 ## Download
 
-Get the installer from the [latest release](https://github.com/yaay/open-headphones-connect/releases/latest).
-Windows 11, 64-bit; no administrator rights needed.
+### Windows
 
-The installer is not code-signed, so Windows shows "Windows protected your PC" the first time:
-choose *More info*, then *Run anyway*. Pair the headphones in Windows first. The app then lives
-in the notification area: left-click its icon for the panel, right-click to quit.
+<a href="https://apps.microsoft.com/detail/9NXQ80TSQD95?mode=direct"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" width="200"></a>
+
+Windows 11, 64-bit. The Microsoft Store version installs without warnings and keeps itself up
+to date.
+
+Or get the installer from the [latest release](https://github.com/yaay/open-headphones-connect/releases/latest);
+no administrator rights needed. It is not code-signed, so Windows shows "Windows protected your
+PC" the first time: choose *More info*, then *Run anyway*.
+
+Pair the headphones in Windows first. The app then lives in the notification area: left-click
+its icon for the panel, right-click to quit.
+
+### Mac
+
+Coming to the Mac App Store, where it is in Apple's review. Until then you can build it
+yourself: macOS 15 or later, with Rust and Xcode's command-line tools, run `macos/run.sh app`.
+[The Mac app's notes](macos/README.md) have the details.
+
+Pair the headphones in System Settings first. The app then lives in the menu bar: click its
+icon for the panel.
 
 ## What it does
 
 - **Connect card** with a 3D model of your headphones, battery level and noise mode whenever
   they connect
-- **Battery** in the tray icon, with a notification when it runs low
+- **Battery** in the tray icon or the menu bar, with a notification when it runs low (Windows)
 - **Noise control**: noise cancelling, wind noise reduction, ambient sound
-- **Playback**: volume, play / pause, skip
+- **Playback**: volume, play / pause, skip (Windows)
 - **Equalizer** and the headphones' own settings: DSEE, Speak-to-Chat, touch panel, connecting
   to two devices, voice guidance, automatic power-off
-- **One-click connect / disconnect**, and start with Windows
+- **NC Optimizer**, **the custom button** and **the devices** your headphones are connected to,
+  with switching between them (Mac)
+- **One-click connect / disconnect**, and starting at login; on the Mac, ⌥⌘A switches the
+  noise mode from anywhere
 
 ## Supported headphones
 
@@ -59,6 +78,7 @@ That is how headphones move up this table.
 - [Supported headphones and reporting](docs/headphones.md)
 - [Your own 3D model on the connect card](docs/custom-model.md)
 - [Building and how it works](docs/development.md)
+- [The Mac app: building, packaging and how it works](macos/README.md)
 - [Changelog](CHANGELOG.md)
 
 ## Credits

@@ -83,7 +83,7 @@ struct CardView: View {
         }
         .padding(EdgeInsets(top: 20, leading: 20, bottom: 18, trailing: 20))
         .frame(width: 320)
-        .modifier(CardSurface())
+        .modifier(CardSurface(offScreen: !live))
         // Room for the shadow, inside the window.
         .padding(18)
         .scaleEffect(shown ? 1 : 0.94, anchor: .topTrailing)
@@ -150,11 +150,18 @@ private extension View {
 }
 
 /// The card's ground: Liquid Glass where the system has it, as a notification has, and the
-/// frosted material with a shadow before that.
+/// frosted material with a shadow before that. Drawn off screen, where neither can be, it is the
+/// window's own colour, which is what the glass shows over a plain dark desktop.
 private struct CardSurface: ViewModifier {
+    let offScreen: Bool
+
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
-        if #available(macOS 26.0, *) {
+        if offScreen {
+            content
+                .background(Color(nsColor: .windowBackgroundColor), in: shape)
+                .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
+        } else if #available(macOS 26.0, *) {
             content.glassEffect(.regular, in: shape)
         } else {
             content

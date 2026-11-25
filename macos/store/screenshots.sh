@@ -33,5 +33,5 @@ draw settings -eq-open NO -headphone-settings-open YES
 "$work/compose" "$work/equalizer.png" "$here/screenshot-3.jpg" \
     "Presets, or your own curve" "The equalizer your headphones have, band by band." panel
 "$work/compose" "$work/settings.png" "$here/screenshot-4.jpg" \
-    "Settings without your phone" "Speak-to-Chat, touch panel, upscaling, voice guidance and automatic power-off." panel
+    "Settings without your phone" "Speak-to-Chat, the custom button, upscaling, voice guidance and automatic power-off." panel
 rm -rf "$work"
