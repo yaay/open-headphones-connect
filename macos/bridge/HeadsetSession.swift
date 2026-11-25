@@ -25,10 +25,10 @@ enum HeadsetSession {
             find_headset: {
                 onMain {
                     let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []
-                    let sony = paired.filter { ohc_is_headset_name($0.nameOrAddress ?? "") }
+                    let headsets = paired.filter { ohc_is_headset_name($0.nameOrAddress ?? "") }
                     // With none connected, the one used last: that is the one Connect is meant for.
-                    let lastUsed = sony.max { ($0.recentAccessDate() ?? .distantPast) < ($1.recentAccessDate() ?? .distantPast) }
-                    return (sony.first { $0.isConnected() } ?? lastUsed).map { Unmanaged.passRetained($0).toOpaque() }
+                    let lastUsed = headsets.max { ($0.recentAccessDate() ?? .distantPast) < ($1.recentAccessDate() ?? .distantPast) }
+                    return (headsets.first { $0.isConnected() } ?? lastUsed).map { Unmanaged.passRetained($0).toOpaque() }
                 }
             },
             headset_name: { headset in onMain { strdup(device(headset).nameOrAddress ?? "") } },
@@ -127,6 +127,7 @@ private final class Link: NSObject, IOBluetoothRFCOMMChannelDelegate {
     private static let services: [(generation: UInt8, uuid: String)] = [
         (1, "96CC203E-5068-46AD-B32D-E316F5E069BA"),  // WH-1000XM3 generation
         (2, "956C7B26-D49A-4BA8-B03F-B17D393CB6E2"),  // XM5 generation
+        (3, "AEAC4A03-DFF5-498F-843A-34487CF133EB"),  // Nothing and CMF
     ]
 
     private let inbox: UnsafeRawPointer

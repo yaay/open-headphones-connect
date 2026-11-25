@@ -2,6 +2,16 @@
 
 Notable changes to Open Headphones Connect, newest first.
 
+## Unreleased
+
+- Mac: Nothing and CMF earbuds and headphones (Ear, Headphone (1), CMF Buds and others): battery
+  for each earbud and the case, noise cancelling with its strength (high, mid, low, adaptive),
+  transparency, EQ presets, in-ear detection and low-latency mode. Not yet tried on real
+  hardware; reports welcome.
+- Mac: the connect card and the panel show each model's own picture where the app has one: 3D
+  models of the CMF Buds Pro 2 (lid open, buds out) and the Nothing Headphone (1), and a clip of
+  the CMF Headphone Pro.
+
 ## 0.2.1 (2026-11-21)
 
 - ULT WEAR: the equalizer now works. Its messages carry an ULT mode that the app did not read, so

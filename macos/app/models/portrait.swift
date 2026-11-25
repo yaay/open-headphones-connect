@@ -1,7 +1,9 @@
 // Draws the still of the 3D headphones that heads the panel, portrait.png beside this file, from
 // headphones.usdz: the model at rest, lit as on the connect card, on a clear ground.
 //
-//     swift macos/app/models/portrait.swift
+//     swift macos/app/models/portrait.swift                  # portrait.png, from headphones.usdz
+//     swift macos/app/models/portrait.swift cmf-buds-pro-2   # portrait-cmf-buds-pro-2.png, from
+//                                                            # headphones-cmf-buds-pro-2.usdz
 //
 // The picture is committed, so the app needs neither this nor a 3D view in the panel. Run it
 // again when the model changes.
@@ -10,6 +12,9 @@ import AppKit
 import RealityKit
 
 let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+/// A model's own files, or the general ones.
+let suffix = CommandLine.arguments.dropFirst().first.map { "-" + $0 } ?? ""
+let output = "portrait\(suffix).png"
 let size = NSRect(x: 0, y: 0, width: 184, height: 160)
 _ = NSApplication.shared
 let view = ARView(frame: size)
@@ -27,7 +32,7 @@ func bothSides(_ entity: Entity) {
     entity.children.forEach(bothSides)
 }
 
-let model = try Entity.load(contentsOf: here.appendingPathComponent("headphones.usdz"))
+let model = try Entity.load(contentsOf: here.appendingPathComponent("headphones\(suffix).usdz"))
 bothSides(model)
 model.position = -model.visualBounds(relativeTo: nil).center
 let pivot = Entity()
@@ -58,8 +63,8 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
         guard let picture, let data = picture.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data),
               let png = bitmap.representation(using: .png, properties: [:])
         else { fatalError("no picture") }
-        try! png.write(to: here.appendingPathComponent("portrait.png"))
-        print("portrait.png: \(bitmap.pixelsWide) × \(bitmap.pixelsHigh)")
+        try! png.write(to: here.appendingPathComponent(output))
+        print("\(output): \(bitmap.pixelsWide) × \(bitmap.pixelsHigh)")
         exit(0)
     }
 }

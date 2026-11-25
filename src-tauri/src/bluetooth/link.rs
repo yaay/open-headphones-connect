@@ -72,7 +72,7 @@ impl Link {
     pub fn open(device: &SonyDevice) -> Result<(Link, Generation), String> {
         let other = match device.generation {
             Generation::V1 => Generation::V2,
-            Generation::V2 => Generation::V1,
+            Generation::V2 | Generation::Nothing => Generation::V1,
         };
         let first = match Self::open_service(device.address, service_uuid(device.generation)) {
             Ok(link) => return Ok((link, device.generation)),

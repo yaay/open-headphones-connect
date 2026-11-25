@@ -20,7 +20,8 @@ typedef struct OhcBluetooth {
     char *(*headset_name)(void *headset);
     // Asked about once a second.
     bool (*headset_is_connected)(void *headset);
-    // Opens the control channel, and says which generation of the protocol it speaks (1 or 2).
+    // Opens the control channel, and says which protocol it speaks: Sony's first or second
+    // generation (1 or 2), or Nothing's (3).
     // From then until link_close, what arrives goes to ohc_link_received and the end of the
     // channel to ohc_link_closed, both with this `inbox`.
     char *(*headset_open)(void *headset, const void *inbox, void **link, uint8_t *generation);
@@ -50,7 +51,7 @@ void ohc_start_demo(const char *model, void (*on_snapshot)(const char *json));
 // of `Command` in core/src/session.rs. False if it is not one, or the session has not started.
 bool ohc_send(const char *command_json);
 
-// Whether a Bluetooth device of this name is a Sony headset.
+// Whether a Bluetooth device of this name is a Sony, Nothing or CMF headset.
 bool ohc_is_headset_name(const char *name);
 
 // Bytes that arrived on a control channel, in order. Always from the same thread.

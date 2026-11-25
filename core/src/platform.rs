@@ -42,7 +42,11 @@ pub trait Headset {
 
 /// What arrives on a control channel.
 pub enum Incoming {
+    /// A whole Sony frame, from a platform that reassembles them itself.
     Frame(Frame),
+    /// Bytes as they came off the channel; the session puts frames together from them, in
+    /// whichever protocol the channel speaks.
+    Bytes(Vec<u8>),
     /// The channel ended; carries the reason when it was not a clean close.
     Closed(Option<String>),
 }

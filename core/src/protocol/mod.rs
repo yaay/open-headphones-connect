@@ -6,17 +6,24 @@
 //!   ported from abhiinhii/sony-tray.
 //!
 //! Both were filled out from libmdr in mos9527/SonyHeadphonesClient.
+//!
+//! [`nothing`] is the protocol of Nothing and CMF earbuds and headphones, which has nothing to
+//! do with Sony's.
 
 pub mod framing;
+pub mod nothing;
 pub mod v1;
 pub mod v2;
 
 use serde::{Deserialize, Serialize};
 
+/// Which protocol the control channel speaks: one of Sony's two command tables, or Nothing's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Generation {
     V1,
     V2,
+    /// Nothing and CMF earbuds and headphones, which speak a protocol of their own.
+    Nothing,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -77,6 +84,8 @@ pub enum Switch {
     /// Hearing your own voice during calls.
     Sidetone,
     VoiceGuidance,
+    /// Less delay between picture and sound, for games and video.
+    LowLatency,
 }
 
 impl Switch {

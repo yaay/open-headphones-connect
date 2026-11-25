@@ -125,6 +125,13 @@ struct Snapshot: Decodable, Equatable {
     var eq: EqState?
     /// The presets this model has; empty where it does not list them.
     var eqPresets: [Int] = []
+    /// Their names, in the same order, where the core knows them (Nothing's); empty for Sony's,
+    /// which `eqPresetLabel` names.
+    var eqPresetNames: [String] = []
+    /// How strongly noise cancelling works, where that is chosen apart from the mode
+    /// (Nothing's): "high", "mid", "low" or "adaptive", and the choices.
+    var ncLevel: String?
+    var ncLevels: [String] = []
     /// The frequency of each band in hertz; empty where the model does not say.
     var eqFrequencies: [Int] = []
     var codec: String?
@@ -199,6 +206,7 @@ final class Headset {
         send(["set_noise": ["mode": noise.mode.rawValue, "ambientLevel": noise.ambientLevel, "focusOnVoice": noise.focusOnVoice]])
     }
 
+    func setNcLevel(_ level: String) { send(["set_nc_level": level]) }
     func setEqPreset(_ preset: Int) { send(["set_eq_preset": preset]) }
 
     func setEqBands(clearBass: Int?, bands: [Int]) {
@@ -227,7 +235,13 @@ let switchInfo: [String: (label: String, hint: String)] = [
     "multipoint": ("Connect to two devices", "The headphones reconnect when this changes"),
     "sidetone": ("Hear your voice on calls", "Plays your own voice back while you talk"),
     "voice_guidance": ("Voice guidance", "Spoken prompts for power, battery and pairing"),
+    "low_latency": ("Low latency", "Less delay for games and video"),
 ]
+
+/// What to call a noise-cancelling strength.
+func ncLevelName(_ level: String) -> String {
+    level.prefix(1).uppercased() + level.dropFirst()
+}
 
 /// What to call a key, and a job it can be given. The core names them (`assign` in
 /// core/src/protocol/mod.rs); one it has no name for is shown as it comes.

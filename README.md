@@ -1,7 +1,7 @@
 # Open Headphones Connect
 
-An unofficial, open-source companion for Sony headphones on Windows 11 and macOS. Not made by
-or affiliated with Sony.
+An unofficial, open-source companion for Sony headphones on Windows 11 and macOS, and on the Mac
+for Nothing and CMF earbuds and headphones too. Not made by or affiliated with Sony or Nothing.
 
 [![Build](https://github.com/yaay/open-headphones-connect/actions/workflows/ci.yml/badge.svg)](https://github.com/yaay/open-headphones-connect/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/yaay/open-headphones-connect)](https://github.com/yaay/open-headphones-connect/releases/latest)
@@ -65,7 +65,9 @@ icon for the panel.
 | WF-1000XM5, WF-1000XM4, WF-1000XM3 | ❔ Untested | |
 | LinkBuds, LinkBuds S, Fit, Open, Clip | ❔ Untested | |
 | WH-CH720N, WH-XB900N | ❔ Untested | |
-| Headphones from other brands | ❌ Not supported | Sony headphones only |
+| Nothing Ear (1), (2), (3), (a), Ear; Headphone (1) | ❔ Untested | Mac only: battery, noise control with its strength, EQ presets, in-ear detection, low latency |
+| CMF Buds Pro 2, Buds 2, Buds, Buds Pro, Headphone Pro | ❔ Untested | Mac only, as above |
+| Headphones from other brands | ❌ Not supported | Sony, Nothing and CMF only |
 
 "Works" means everything in the list above: the connect card, battery, noise control, playback,
 the equalizer and the headphones' settings.
@@ -89,6 +91,17 @@ by Plutoberth, [Sony Tray](https://github.com/abhiinhii/sony-tray) by abhiinhii,
 and contributors. The WH-1000XM5 on the connect card is the 3D model
 [Sony Wh-1000xm5](https://sketchfab.com/3d-models/sony-wh-1000xm5-5d8aea0a780b49fa89c9c205912414e3) by Zalaneke, used under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+Nothing and CMF support is written from what these MIT-licensed projects found on real
+hardware: [something-x](https://github.com/SoaOaoS/something-x),
+[nothinx](https://github.com/faustyu1/nothinx),
+[omarchy-headphones](https://github.com/ncr/omarchy-headphones),
+[nothing-toolbox](https://github.com/marc-alexis-com/nothing-toolbox),
+[nothing-headphone-cli](https://github.com/LikelyLucid/nothing-headphone-cli) and
+[nothing_helper](https://github.com/Kuksenok-i-s/nothing_helper).
+
+The Nothing Headphone (1) model on the Mac's connect card is by
+[Mehdi](https://www.instagram.com/mhdy.3d6/), used with his permission.
 
 MIT licensed, apart from that model; see [LICENSE](LICENSE). Sony and its product names are trademarks of Sony Group
 Corporation, used here only to say what this software works with.

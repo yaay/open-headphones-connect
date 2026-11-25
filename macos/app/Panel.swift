@@ -68,9 +68,21 @@ private struct FittedScroll<Content: View>: View {
 
 private var lastHeight: CGFloat = 0
 
-/// The still of the headphones in the app's resources. `Image("portrait")` would look for it in
-/// an asset catalog, which the app does not have.
-let portrait = NSImage(named: "portrait").map { Image(nsImage: $0) } ?? Image(systemName: "headphones")
+/// The app's own files for one model of headphones go by its name: for "CMF Buds Pro 2",
+/// headphones-cmf-buds-pro-2.usdz, portrait-cmf-buds-pro-2.png and card-cmf-buds-pro-2.mov.
+/// Models without their own use the general ones.
+func resourceName(_ kind: String, for model: String?) -> String? {
+    guard let model else { return nil }
+    let words = model.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    return words.isEmpty ? nil : ([kind] + words).joined(separator: "-")
+}
+
+/// The still of these headphones in the app's resources, or of the general 3D model.
+/// `Image("portrait")` would look for it in an asset catalog, which the app does not have.
+func portrait(for model: String?) -> Image {
+    let own = resourceName("portrait", for: model).flatMap { NSImage(named: $0) }
+    return (own ?? NSImage(named: "portrait")).map { Image(nsImage: $0) } ?? Image(systemName: "headphones")
+}
 
 func openBluetoothSettings() {
     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.BluetoothSettings")!)
@@ -121,7 +133,7 @@ private struct Header: View {
             .frame(maxHeight: .infinity, alignment: .topLeading)
             Spacer(minLength: 0)
             // A still of the connect card's 3D model, made by models/portrait.swift.
-            portrait
+            portrait(for: snapshot.model)
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
@@ -357,6 +369,16 @@ private struct NoiseControl: View {
                 }
             }
 
+            // Where noise cancelling has strengths to choose from (Nothing's earbuds).
+            if noise.mode == .noiseCancelling, let level = snapshot.ncLevel, snapshot.ncLevels.count > 1 {
+                Picker("Strength", selection: Binding(get: { level }, set: headset.setNcLevel)) {
+                    ForEach(snapshot.ncLevels, id: \.self) { level in
+                        Text(ncLevelName(level)).tag(level)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             // Some models have ambient sound without a level, or without a voice mode.
             if noise.mode == .ambient && (snapshot.maxAmbientLevel > 0 || snapshot.focusOnVoiceAvailable) {
                 GroupBox {
@@ -491,13 +513,16 @@ private struct Equalizer: View {
         // Every value runs over the range the headset gives, or Sony's usual one for the layout.
         let range = eq.range > 0 ? eq.range : eq.clearBass == nil ? 6 : 10
         let labels = bandLabels(snapshot, count: eq.bands.count)
+        // The core names the presets of headphones other than Sony's.
+        let named = Dictionary(zip(snapshot.eqPresets, snapshot.eqPresetNames), uniquingKeysWith: { first, _ in first })
+        let name = { (preset: Int) in named[preset] ?? eqPresetLabel[preset] }
 
         let picker = Picker("Equalizer preset", selection: Binding(get: { eq.preset }, set: headset.setEqPreset)) {
             if !presets.contains(eq.preset) {
-                Text(eqPresetLabel[eq.preset] ?? "Custom").tag(eq.preset)
+                Text(name(eq.preset) ?? "Custom").tag(eq.preset)
             }
             ForEach(presets, id: \.self) { preset in
-                Text(eqPresetLabel[preset] ?? "Preset \(preset)").tag(preset)
+                Text(name(preset) ?? "Preset \(preset)").tag(preset)
             }
         }
         .labelsHidden()

@@ -308,6 +308,37 @@ Not there yet:
   a second or two after macOS does.
 - The battery counting up, and the text rising in.
 
+## Nothing and CMF
+
+Nothing and CMF earbuds and headphones speak a protocol of their own over the same kind of serial
+channel (`core/src/protocol/nothing.rs`; the session side is `core/src/session/nothing_link.rs`).
+It was written from MIT-licensed projects that tested it on real devices; the README credits
+them. The Mac finds the channel through its service record
+(`AEAC4A03-DFF5-498F-843A-34487CF133EB`), and the bridge now hands the session raw bytes, which it
+puts together as Sony or Nothing frames.
+
+- Battery for each earbud and the case (the case only reports while open, so its last level
+  stays), noise cancelling with its strength, transparency, off, EQ presets (Nothing's own, or
+  CMF's "listening modes"), in-ear detection (as "Pause when taken off") and low latency.
+- Requests go at least 150 ms apart, as some earbuds drop one that follows too closely, and every
+  setting is read back after it is acknowledged.
+- `--demo "CMF Buds Pro 2"` (or any Nothing or CMF name) shows made-up ones.
+- A model can have its own picture: `headphones-<name>.usdz` for the card's 3D view and
+  `portrait-<name>.png` for the panel, or `card-<name>.mov` or `.mp4`, a clip the card plays
+  instead (muted, once, the card staying until it ends). A clip on a plain ground needs no
+  cut-out: the card takes the colour of its first frame's corner, and the clip's edges fade into
+  it. The glow behind a 3D model waits for the model, so it never shows alone. `<name>` is the model name in lower
+  case with dashes: `cmf-buds-pro-2`, `headphone-1`, `cmf-headphone-pro`. Models without them get
+  the general ones. `models/blender_usdz.py` says how the Nothing and CMF ones were made.
+- `core/tests/nothing_headset.rs` runs the whole session against a stand-in CMF Buds Pro 2.
+
+Not tried on real hardware yet. Open questions: whether presets 1 and 3 are Voice and More Bass
+(Headphone (1)) or the other way round (one report from an Ear (2)); which preset command
+CMF Buds 2 and CMF Headphone Pro use (the session asks both ways); and whether every model takes
+"off" as 5. Without a service record the app does not yet try the known channels (15, 16, 28).
+Not done: custom EQ curves, gestures, spatial audio, bass boost, multipoint, and Windows (its
+link would have to hand over raw bytes and look for the same service).
+
 ## Packaging
 
 ```sh

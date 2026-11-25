@@ -2,6 +2,7 @@
 // place, then the battery level and noise mode. The Mac counterpart of src/Card.tsx and
 // src/Headphones3D.tsx.
 
+import AVFoundation
 import RealityKit
 import SwiftUI
 
@@ -35,6 +36,11 @@ struct CardView: View {
     /// The battery and the status, which follow the card in once the headphones are on their way.
     @State private var revealed = false
     @State private var hovering = false
+    /// The ground of this model's clip, which the card takes on so the clip has no edges on it.
+    @State private var ground: Color?
+    /// Whether the 3D model has loaded: the glow behind it waits for it, so that it never shows
+    /// alone, like a loading spinner.
+    @State private var modelReady = false
 
     var body: some View {
         let snapshot = headset.snapshot
@@ -43,23 +49,29 @@ struct CardView: View {
         VStack(spacing: 2) {
             Text(snapshot.deviceName ?? "Sony headphones").font(.title2.weight(.semibold))
             Group {
-                if live {
-                    // A new identity for every arrival, so the model is built again and spins in
-                    // again; otherwise the window keeps the one from last time, at rest.
-                    HeadphonesView().id(headset.arrivals)
+                // A new identity for every arrival, so the model is built again and spins in
+                // again, or the clip plays again; otherwise the window keeps the last one, at rest.
+                if live, !reduceMotion, let clip = CardClip.file(for: snapshot.model) {
+                    // Its edges fade into the card, which has its colour.
+                    CardClip(url: clip)
+                        .mask { Rectangle().padding(16).blur(radius: 14) }
+                        .id(headset.arrivals)
+                } else if live {
+                    HeadphonesView(model: snapshot.model) { modelReady = true }.id(headset.arrivals)
                 } else {
-                    portrait.resizable().scaledToFit().padding(30)
+                    portrait(for: snapshot.model).resizable().scaledToFit().padding(30)
                 }
             }
             .frame(width: 280, height: 230)
             // A faint pool of light behind the headphones, so a black pair still stands out on
             // a dark card. It swells in with them.
-            .background(
+            .background {
+                let glowing = revealed && ground == nil && (modelReady || !live)
                 RadialGradient(colors: [.white.opacity(0.22), .clear], center: .center, startRadius: 0, endRadius: 120)
-                    .scaleEffect(revealed ? 1 : 0.4)
-                    .opacity(revealed ? 1 : 0)
-                    .animation(motion(.easeOut(duration: 1.1)), value: revealed)
-            )
+                    .scaleEffect(glowing ? 1 : 0.4)
+                    .opacity(glowing ? 1 : 0)
+                    .animation(motion(.easeOut(duration: 1.1)), value: glowing)
+            }
             .accessibilityHidden(true)
             if let battery = snapshot.headlineBattery {
                 // The figure rolls up from nothing as it arrives, and rolls on when it changes.
@@ -83,7 +95,7 @@ struct CardView: View {
         }
         .padding(EdgeInsets(top: 20, leading: 20, bottom: 18, trailing: 20))
         .frame(width: 320)
-        .modifier(CardSurface(offScreen: !live))
+        .modifier(CardSurface(offScreen: !live, ground: ground))
         // Room for the shadow, inside the window.
         .padding(18)
         .scaleEffect(shown ? 1 : 0.94, anchor: .topTrailing)
@@ -99,11 +111,16 @@ struct CardView: View {
         // Each fresh connection starts the stay again: seven seconds, longer while the pointer
         // rests on the card.
         .task(id: headset.arrivals) {
+            // Long enough for a clip to play to its end.
+            let clip = reduceMotion ? nil : CardClip.file(for: headset.snapshot.model)
+            let length = await clip.asyncMap { try? await AVURLAsset(url: $0).load(.duration).seconds } ?? nil
+            ground = await clip.asyncMap(CardClip.ground) ?? nil
+            modelReady = false
             self.revealed = false
             withAnimation(motion(.spring(duration: 0.55, bounce: 0.3))) { self.shown = true }
             self.revealed = true
             do {
-                try await Task.sleep(for: .seconds(7))
+                try await Task.sleep(for: .seconds(max(7, (length ?? 0) + 1)))
                 while hovering {
                     try await Task.sleep(for: .seconds(1.2))
                 }
@@ -154,10 +171,17 @@ private extension View {
 /// window's own colour, which is what the glass shows over a plain dark desktop.
 private struct CardSurface: ViewModifier {
     let offScreen: Bool
+    /// A clip's own ground, which the card takes on instead, with light text on it.
+    var ground: Color?
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
-        if offScreen {
+        if let ground {
+            content
+                .environment(\.colorScheme, .dark)
+                .background(ground, in: shape)
+                .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
+        } else if offScreen {
             content
                 .background(Color(nsColor: .windowBackgroundColor), in: shape)
                 .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
@@ -186,6 +210,18 @@ struct HeadphonesView: View {
     /// How much of the view the resting model fills, leaving room for the entrance.
     private static let fill: Float = 0.74
     private static let aspect: Float = 280 / 230
+    /// The headphones' model name: those with their own 3D file get it, the rest the general one.
+    var model: String?
+    /// Called once the model is in place.
+    var onLoad: () -> Void = {}
+
+    /// Models already read from disk, so that the next card has one at once.
+    @MainActor private static var loaded: [URL: Entity] = [:]
+
+    /// The longest side of the general model, in its own units. Models made elsewhere come in
+    /// theirs (metres, from Blender) and are brought to this size, which the camera below and
+    /// the distances the model moves are set for.
+    private static let size: Float = 20
 
     /// What keeps the model moving, held for as long as the view is.
     private final class Motion {
@@ -198,10 +234,17 @@ struct HeadphonesView: View {
 
     var body: some View {
         RealityView { content in
-            guard let file = Bundle.main.url(forResource: "headphones", withExtension: "usdz"),
-                  let model = try? await Entity(contentsOf: file)
-            else { return }
+            let own = resourceName("headphones", for: model).flatMap { Bundle.main.url(forResource: $0, withExtension: "usdz") }
+            guard let file = own ?? Bundle.main.url(forResource: "headphones", withExtension: "usdz") else { return }
+            if Self.loaded[file] == nil {
+                Self.loaded[file] = try? await Entity(contentsOf: file)
+            }
+            guard let model = Self.loaded[file]?.clone(recursive: true) else { return }
             Self.bothSides(model)
+            let longest = model.visualBounds(relativeTo: nil).extents.max()
+            if longest > 0 {
+                model.scale *= SIMD3(repeating: Self.size / longest)
+            }
 
             let pivot = Entity()
             model.position = -model.visualBounds(relativeTo: nil).center
@@ -229,6 +272,7 @@ struct HeadphonesView: View {
                 content.add(light)
             }
             content.add(pivot)
+            onLoad()
 
             let still = reduceMotion
             let motion = motion
@@ -265,5 +309,57 @@ struct HeadphonesView: View {
     /// Tilt first, then turn: the turn stays about the model's own upright axis.
     static func pose(yaw: Float, pitch: Float) -> simd_quatf {
         simd_quatf(angle: pitch, axis: [1, 0, 0]) * simd_quatf(angle: yaw, axis: [0, 1, 0])
+    }
+}
+
+/// A clip of the headphones, for models that have one in place of a 3D model: played once from
+/// the start each time the card arrives, then held on its last frame. It has no sound, and is
+/// muted besides, so it never takes the headphones' audio away from another device.
+struct CardClip: NSViewRepresentable {
+    let url: URL
+
+    /// This model's clip, if it has one: card-<name>.mov or .mp4 in the app's resources.
+    static func file(for model: String?) -> URL? {
+        guard let name = resourceName("card", for: model) else { return nil }
+        return Bundle.main.url(forResource: name, withExtension: "mov") ?? Bundle.main.url(forResource: name, withExtension: "mp4")
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let player = AVPlayer(url: url)
+        player.isMuted = true
+        player.preventsDisplaySleepDuringVideoPlayback = false
+        player.actionAtItemEnd = .pause
+        let layer = AVPlayerLayer(player: player)
+        // Filling the picture's place on the card.
+        layer.videoGravity = .resizeAspectFill
+        layer.backgroundColor = .clear
+        let view = NSView()
+        view.layer = layer
+        view.wantsLayer = true
+        player.play()
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    /// The colour of the clip's ground: its first frame's top left corner.
+    static func ground(of url: URL) async -> Color? {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        guard let (image, _) = try? await generator.image(at: .zero),
+              let corner = image.cropping(to: CGRect(x: 4, y: 4, width: 1, height: 1)),
+              let colour = NSBitmapImageRep(cgImage: corner).colorAt(x: 0, y: 0)
+        else { return nil }
+        return Color(nsColor: colour)
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: ()) {
+        (view.layer as? AVPlayerLayer)?.player?.pause()
+    }
+}
+
+private extension Optional {
+    func asyncMap<T>(_ transform: (Wrapped) async -> T) async -> T? {
+        guard let value = self else { return nil }
+        return await transform(value)
     }
 }
