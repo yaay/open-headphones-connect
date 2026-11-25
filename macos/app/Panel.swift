@@ -137,6 +137,9 @@ private struct Header: View {
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
+                // A still on a ground of its own (taken from a clip) shows as a rounded tile;
+                // one with a transparent ground is not changed by this.
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .frame(width: 150, height: 130)
                 .opacity(connected ? 1 : 0.45)
                 .accessibilityHidden(true)
