@@ -67,7 +67,9 @@ jobs:
           $found = $answer | ConvertFrom-Json
           if (-not $found.status) { throw "Partner Center's answer has no submission state in it." }
           # The ID tells a draft that was deleted and started again from one that never went away.
-          $which = "'$($found.friendlyName)' ($($found.status), ID $($found.id))"
+          # A submission made through the API has no name.
+          $name = if ($found.friendlyName) { "'$($found.friendlyName)'" } else { "A submission without a name" }
+          $which = "$name ($($found.status), ID $($found.id))"
           if ($found.status -eq "Published") {
             "::notice::Nothing is open in Partner Center; the newest submission, $which, is in the Store. A new one can be sent."
           } elseif ($found.fileUploadUrl) {
