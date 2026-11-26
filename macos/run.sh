@@ -30,7 +30,7 @@ shift
 
 name="Open Headphones Connect"
 id=dev.openheadphonesconnect.desktop
-why="Shows your Sony headphones' battery and changes their settings."
+why="Shows your headphones' battery, changes their settings and offers to pair new ones."
 case "$tool" in
 app) app="$here/build/$name.app" ;;
 # Apart from the copy `app` builds, which may be the one that is running.

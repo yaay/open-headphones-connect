@@ -11,6 +11,9 @@ Notable changes to Open Headphones Connect, newest first.
 - Mac: the connect card and the panel show each model's own picture where the app has one: 3D
   models of the CMF Buds Pro 2 (lid open, buds out) and the Nothing Headphone (1), and a clip of
   the CMF Headphone Pro.
+- Mac: a card offers to pair supported headphones that are in pairing mode nearby and not yet
+  paired with the Mac. Pair finds them, pairs and connects; "Offer to Pair New Headphones" in the
+  menu turns it off. Tried with a WH-1000XM3.
 
 ## 0.2.1 (2026-11-21)
 

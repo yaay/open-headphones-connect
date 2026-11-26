@@ -11,6 +11,9 @@
 //                                                   # screen's 2
 //     … --render panel.png --send '{"set_eq_preset": 16}'
 //                                                   # after that command, or several, has been sent
+//     macos/run.sh app --demo WH-1000XM5 --offer "CMF Buds Pro 2"
+//                                                   # then the card that offers to pair made-up
+//                                                   # headphones of that name (with --render too)
 
 import AppKit
 import CoreBluetooth
@@ -66,7 +69,7 @@ enum Main {
             arguments.firstIndex(of: flag).flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
         }
         let demo = value(after: "--demo")
-        UserDefaults.standard.register(defaults: [Preference.connectCard: true])
+        UserDefaults.standard.register(defaults: [Preference.connectCard: true, Preference.pairingOffers: true])
         if let picture = value(after: "--render") {
             headset.start(demo: demo)
             // Long enough for a real headset to have said what it has; a made-up one is quick.
@@ -79,6 +82,13 @@ enum Main {
                 HeadsetSession.send(arguments[at + 1])
                 RunLoop.main.run(until: Date().addingTimeInterval(0.5))
             }
+            if let name = value(after: "--offer") {
+                Pairing.shared.preview(name)
+                // `pairing`: as it looks after Pair was clicked.
+                if arguments.contains("pairing") {
+                    Pairing.shared.pairNow()
+                }
+            }
             let card = arguments.contains("card")
             let refused = Panel.bluetoothRefused || arguments.contains("refused")
             let panel = Panel(headset: headset, refused: refused).background(Color(nsColor: .windowBackgroundColor))
@@ -89,6 +99,10 @@ enum Main {
             Shortcut.shared.enabled = UserDefaults.standard.bool(forKey: Preference.shortcut)
             if demo == nil {
                 BluetoothRestart.shared.watch()
+                Pairing.shared.start()
+            } else if let name = value(after: "--offer") {
+                // After the made-up headphones' own card has come and gone.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 9) { Pairing.shared.preview(name) }
             }
             headset.start(demo: demo)
             OpenHeadphonesConnect.main()
@@ -149,15 +163,12 @@ private struct MenuBarLabel: View {
         }
         .onChange(of: headset.arrivals) {
             guard UserDefaults.standard.bool(forKey: Preference.connectCard), !CardScene.wouldIntrude else { return }
-            let model = headset.snapshot.model
-            Task {
-                // The card opens with its 3D model in hand. For headphones seen before it already
-                // is; for new ones the card comes a moment later, and whole.
-                if CardClip.file(for: model) == nil {
-                    await HeadphonesView.preload(model)
-                }
-                openWindow(id: CardScene.id)
-            }
+            showCard(for: headset.snapshot.model)
+        }
+        // Headphones in pairing mode nearby: the card offers to pair them.
+        .onChange(of: Pairing.shared.offers) {
+            guard !CardScene.wouldIntrude, let offer = Pairing.shared.offer else { return }
+            showCard(for: offer.model)
         }
         // The model of the headphones used last is read as the app starts, well before they
         // connect; another pair's as soon as it says what it is.
@@ -167,6 +178,17 @@ private struct MenuBarLabel: View {
         .onChange(of: headset.snapshot.model) { _, model in
             guard let model else { return }
             UserDefaults.standard.set(model, forKey: Preference.lastModel)
+        }
+    }
+
+    /// Opens the card with its 3D model in hand. For headphones seen before it already is; for
+    /// new ones the card comes a moment later, and whole.
+    private func showCard(for model: String?) {
+        Task {
+            if CardClip.file(for: model) == nil {
+                await HeadphonesView.preload(model)
+            }
+            openWindow(id: CardScene.id)
         }
     }
 }

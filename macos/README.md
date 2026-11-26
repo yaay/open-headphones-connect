@@ -343,6 +343,42 @@ CMF Buds 2 and CMF Headphone Pro use (the session asks both ways); and whether e
 Not done: custom EQ curves, gestures, spatial audio, bass boost, multipoint, and Windows (its
 link would have to hand over raw bytes and look for the same service).
 
+## The pairing card
+
+Headphones in pairing mode nearby, supported and not yet paired with the Mac, get the card with
+"Not paired with this Mac" and one big Pair button (`app/Pairing.swift`). Every card has a close
+button in its corner; closing an offer turns it down, and silences that pair until the app
+starts again. "Offer to Pair New Headphones" in the ⋯ menu turns the offers off. `--demo X --offer "WH-1000XM3"` shows the card for made-up ones.
+
+- **Noticing.** Headphones in pairing mode say so over Bluetooth LE: Google Fast Pair (service
+  data `FE2C` holding a three-byte model id; anything longer is an account filter, sent when not
+  in pairing mode) and Microsoft Swift Pair (manufacturer data `0006 03 …`). The app listens in
+  scans of eight seconds in a row, since a device is reported once a scan. A WH-1000XM3 sends
+  Fast Pair `0BC95C` under the name `LE_WH-1000XM3`: Sony's LE names carry that prefix, which
+  is dropped. An advertisement that names nothing leads to one short search, two minutes apart
+  at most.
+- **Pairing.** Clicking Pair runs a classic search (`IOBluetoothDeviceInquiry`, audio devices
+  only) with the LE listening paused, for up to 45 seconds: a ten-second pass missed the
+  WH-1000XM3 once and found it after nine seconds another time. Then `IOBluetoothDevicePair`,
+  `openConnection`, and `rescan` to the session until it has them. On the WH-1000XM3: found
+  twelve seconds after the click, paired in two, connected two later.
+- **What is trusted.** An advertisement is anybody's word, so it only ever leads to an offer.
+  The device paired with has to answer the search itself, as an audio device, under a supported
+  headphone's name that matches the offer (and under the advertisement's address, where it gave
+  one). macOS asked for no confirmation when the WH-1000XM3 paired, as headphones have nothing
+  to confirm on; a device that does ask, for a number or a code, is refused.
+- **Buttons.** The card's two buttons are fills drawn by the app: Pair a capsule in the system's
+  blue, which keeps its place while the pairing is under way with the spinner in it, and close
+  the system's `xmark.circle.fill`. Stock buttons are Liquid Glass on macOS 26, and
+  inside the card's own glass they drew all of the card's text upside down; the glass button
+  styles over a card whose glass was moved behind its content looked wrong too. Fills also keep
+  their colour in a window that is not the active one, which the card never is.
+- `macos/run.sh probe scan 20` and `probe inquire 8` show what the app would hear and find.
+
+Not tried: Swift Pair headphones, Nothing's and CMF's (their Fast Pair ids are from an app's
+tables), and headphones that announce nothing, which are never noticed. Not done: Windows, which
+shows its own Swift Pair notification.
+
 ## Packaging
 
 ```sh

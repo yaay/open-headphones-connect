@@ -817,6 +817,7 @@ private struct Footer: View {
     let snapshot: Snapshot
     let refused: Bool
     @AppStorage(Preference.connectCard) private var showCard = true
+    @AppStorage(Preference.pairingOffers) private var offerPairing = true
     @AppStorage(Preference.shortcut) private var shortcut = false
     @State private var confirmingPowerOff = false
 
@@ -836,6 +837,7 @@ private struct Footer: View {
                 }
                 Toggle("Open at Login", isOn: Binding(get: { LoginItem.isOn }, set: { LoginItem.isOn = $0 }))
                 Toggle("Show Card on Connect", isOn: $showCard)
+                Toggle("Offer to Pair New Headphones", isOn: $offerPairing)
                 Toggle("Switch Noise Mode with ⌥⌘A", isOn: Binding(get: { shortcut }, set: { on in
                     shortcut = on
                     Shortcut.shared.enabled = on

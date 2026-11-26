@@ -51,6 +51,8 @@ icon for the panel.
   with switching between them (Mac)
 - **One-click connect / disconnect**, and starting at login; on the Mac, ⌥⌘A switches the
   noise mode from anywhere
+- **Pairing from a card** (Mac): supported headphones in pairing mode nearby, not yet paired
+  with the Mac, get a card with a Pair button, as AirPods do
 
 ## Supported headphones
 

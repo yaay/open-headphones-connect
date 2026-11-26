@@ -195,6 +195,8 @@ final class Headset {
     }
 
     func connect() { send("connect") }
+    /// Has the session look through the paired devices again now, after one was just paired.
+    func rescan() { send("rescan") }
 
     /// Between noise cancelling and ambient sound, for the global shortcut.
     func toggleNoise() {

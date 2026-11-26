@@ -32,6 +32,7 @@ What you can do:
 • Connect, disconnect or power off the headphones with one click
 • Change headphone settings: Speak-to-Chat, touch panel, DSEE upscaling, voice guidance, automatic power-off
 • Switch the noise mode from anywhere with Option-Command-A, and open the app at login
+• Pair new headphones from a card: put them in pairing mode near your Mac and click Pair
 
 Headphones it works with:
 • WH-1000XM3: tested on the Mac
@@ -59,6 +60,7 @@ The description may say what the app works with; keywords are where it gets apps
 • NC Optimizer, the custom button, and the devices your headphones are connected to, with switching between them
 • Switch the noise mode from anywhere with Option-Command-A
 • Open at login
+• Pair new headphones from a card, the way AirPods pair
 • A redesigned panel, and a livelier card when your headphones connect
 • Recovers by itself when macOS restarts Bluetooth
 

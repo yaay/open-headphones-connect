@@ -60,24 +60,30 @@ struct CardView: View {
 
     var body: some View {
         let snapshot = headset.snapshot
+        // Headphones on offer to pair (Pairing.swift) take the card over from the connected ones.
+        let offer = Pairing.shared.offer
+        let model = offer?.model ?? snapshot.model
+        let colour = offer == nil ? snapshot.colour : nil
+        let episode = "\(headset.arrivals) \(Pairing.shared.offers)"
         let shown = self.shown || !live
         let revealed = self.revealed || !live
         VStack(spacing: 2) {
-            Text(snapshot.deviceName ?? "Headphones").font(.title2.weight(.semibold))
+            Text(offer?.name ?? snapshot.deviceName ?? "Headphones").font(.title2.weight(.semibold))
             Group {
-                // A new identity for every arrival, so the model is built again and spins in
-                // again, or the clip plays again; otherwise the window keeps the last one, at rest.
-                if live, !reduceMotion, let clip = CardClip.file(for: snapshot.model) {
+                // A new identity for every arrival and offer, so the model is built again and
+                // spins in again, or the clip plays again; otherwise the window keeps the last
+                // one, at rest.
+                if live, !reduceMotion, let clip = CardClip.file(for: model) {
                     // Its edges fade into the card, which has its colour.
                     CardClip(url: clip)
                         .mask { Rectangle().padding(16).blur(radius: 14) }
-                        .id(headset.arrivals)
+                        .id(episode)
                 } else if live {
                     // Built again, too, if the colour only becomes known once it is up.
-                    HeadphonesView(model: snapshot.model, colour: snapshot.colour) { modelReady = true }
-                        .id("\(headset.arrivals) \(snapshot.colour ?? -1)")
+                    HeadphonesView(model: model, colour: colour) { modelReady = true }
+                        .id("\(episode) \(colour ?? -1)")
                 } else {
-                    portrait(for: snapshot.model, colour: snapshot.colour).resizable().scaledToFit().padding(30)
+                    portrait(for: model, colour: colour).resizable().scaledToFit().padding(30)
                 }
             }
             .frame(width: 280, height: 230)
@@ -95,7 +101,10 @@ struct CardView: View {
             // the panel shows them. Headphones have the one.
             let slots = [("L", snapshot.battery.left), ("R", snapshot.battery.right), ("Case", snapshot.battery.case)]
                 .compactMap { slot, battery in battery.map { (slot, $0) } }
-            if snapshot.phase == .connected, snapshot.battery.single == nil, !slots.isEmpty {
+            if offer != nil {
+                pairingRow(Pairing.shared.stage)
+                    .rise(revealed, motion(.spring(duration: 0.7, bounce: 0.25).delay(0.45)))
+            } else if snapshot.phase == .connected, snapshot.battery.single == nil, !slots.isEmpty {
                 HStack(spacing: 12) {
                     ForEach(Array(slots.enumerated()), id: \.offset) { index, item in
                         batteryLabel(item.1, slot: item.0, revealed: revealed)
@@ -109,18 +118,23 @@ struct CardView: View {
                     .rise(revealed, motion(.spring(duration: 0.7, bounce: 0.25).delay(0.45)))
             }
             // In full strength: on the card's translucent ground, the secondary colour is too faint.
-            Label {
-                Text(status(snapshot))
-            } icon: {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(.secondary)
-                    .symbolEffect(.variableColor.iterative, options: .nonRepeating, value: revealed)
+            if offer == nil {
+                Label {
+                    Text(status(snapshot))
+                } icon: {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .foregroundStyle(.secondary)
+                        .symbolEffect(.variableColor.iterative, options: .nonRepeating, value: revealed)
+                }
+                .font(.body.weight(.medium))
+                .rise(revealed, motion(.spring(duration: 0.6, bounce: 0.25).delay(0.65)))
             }
-            .font(.body.weight(.medium))
-            .rise(revealed, motion(.spring(duration: 0.6, bounce: 0.25).delay(0.65)))
         }
         .padding(EdgeInsets(top: 20, leading: 20, bottom: 18, trailing: 20))
         .frame(width: 320)
+        .overlay(alignment: .topTrailing) {
+            closeButton.padding(10)
+        }
         .modifier(CardSurface(offScreen: !live, ground: ground))
         // Room for the shadow, inside the window.
         .padding(18)
@@ -130,15 +144,21 @@ struct CardView: View {
         .containerBackground(.clear, for: .window)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture(perform: leave)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Closes this card")
+        // A click anywhere closes the card, unless it is asking something: then its buttons do.
+        .onTapGesture {
+            if Pairing.shared.offer == nil {
+                leave()
+            }
+        }
+        .accessibilityElement(children: offer == nil ? .combine : .contain)
+        .accessibilityAddTraits(offer == nil ? .isButton : [])
+        .accessibilityHint(offer == nil ? "Closes this card" : "")
         // Each fresh connection starts the stay again: seven seconds, longer while the pointer
-        // rests on the card.
-        .task(id: headset.arrivals) {
+        // rests on the card. An offer to pair stays for as long as it stands.
+        .task(id: episode) {
+            let offering = Pairing.shared.offer != nil
             // Long enough for a clip to play to its end.
-            let clip = reduceMotion ? nil : CardClip.file(for: headset.snapshot.model)
+            let clip = reduceMotion ? nil : CardClip.file(for: Pairing.shared.offer?.model ?? headset.snapshot.model)
             let length = await clip.asyncMap { try? await AVURLAsset(url: $0).load(.duration).seconds } ?? nil
             ground = await clip.asyncMap(CardClip.ground) ?? nil
             modelReady = false
@@ -146,6 +166,16 @@ struct CardView: View {
             withAnimation(motion(.spring(duration: 0.55, bounce: 0.3))) { self.shown = true }
             self.revealed = true
             do {
+                if offering {
+                    while Pairing.shared.offer != nil {
+                        try await Task.sleep(for: .seconds(0.4))
+                    }
+                    // Turned down or gone, the card goes; paired and connected, it stays on as
+                    // the connect card.
+                    if headset.snapshot.phase != .connected {
+                        return leave()
+                    }
+                }
                 try await Task.sleep(for: .seconds(max(7, (length ?? 0) + 1)))
                 while hovering {
                     try await Task.sleep(for: .seconds(1.2))
@@ -164,6 +194,60 @@ struct CardView: View {
             revealed = false
             dismissWindow(id: CardScene.id)
         }
+    }
+
+    /// Closes the card at any time. An offer to pair is turned down with it.
+    private var closeButton: some View {
+        Button {
+            if Pairing.shared.offer != nil {
+                Pairing.shared.notNow()
+            }
+            leave()
+        } label: {
+            // The system's own close symbol: the cross full strength, its disc faint.
+            Image(systemName: "xmark.circle.fill")
+                .symbolRenderingMode(.hierarchical)
+                .font(.title2)
+                .foregroundStyle(.primary)
+        }
+        .buttonStyle(CardFill(kind: .close))
+        .accessibilityLabel("Close")
+        .help("Close")
+    }
+
+    /// What headphones on offer have in place of a battery and a status: where the pairing
+    /// stands, and the button for it.
+    private func pairingRow(_ stage: Pairing.Stage) -> some View {
+        let busy = if case .working = stage { true } else { false }
+        return VStack(spacing: 12) {
+            switch stage {
+            case .offered:
+                Text("Not paired with this Mac").font(.body.weight(.medium))
+            case .working(let what):
+                Text(what).font(.body.weight(.medium))
+            case .failed(let why):
+                Text(why).font(.callout).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
+            // The one thing to do; the card's close button is how to say no. While it is being
+            // done the button stays, with the spinner in it, so that nothing on the card moves.
+            Button {
+                Pairing.shared.pairNow()
+            } label: {
+                if busy {
+                    // The system's spinner as a symbol, which takes the button's white: the
+                    // control itself comes out faint on blue.
+                    Image(systemName: "progress.indicator")
+                        .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeating)
+                } else {
+                    Text(stage == .offered ? "Pair" : "Try Again")
+                }
+            }
+            .buttonStyle(CardFill(kind: .action))
+            // Not `disabled`, which would dim the spinner: it just takes no clicks meanwhile.
+            .allowsHitTesting(!busy)
+            .accessibilityLabel(busy ? "Pairing" : stage == .offered ? "Pair" : "Try Again")
+        }
+        .padding(.top, 8)
     }
 
     /// A battery's level, which rolls up from nothing as the card arrives and rolls on when it
@@ -197,6 +281,47 @@ struct CardView: View {
         case .ambient: return snapshot.maxAmbientLevel > 0 ? "Ambient sound, level \(noise.ambientLevel - snapshot.minAmbientLevel + 1)" : "Ambient sound is on"
         case .off: return "Noise control is off"
         }
+    }
+}
+
+/// The card's two buttons, drawn as fills so that they look the same on every system and in a
+/// window that is not the active one, where stock buttons lose their colour. They are not the
+/// stock styles, and not Liquid Glass: those are glass on macOS 26, glass may not sit on the
+/// card's own glass, and tried there they drew the card's text upside down, or looked wrong.
+private struct CardFill: ButtonStyle {
+    enum Kind {
+        /// The one big button that does what the card offers: a capsule in the system's blue.
+        case action
+        case close
+    }
+
+    let kind: Kind
+
+    func makeBody(configuration: Configuration) -> some View {
+        Group {
+            switch kind {
+            case .action:
+                // After the system's own prominent button, as on the card that offers to connect
+                // AirPods: a capsule in its blue, text of medium weight, a faint lit rim. Smaller
+                // than that one, to suit a card this size.
+                configuration.label
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 200, height: 36)
+                    .background(Color.blue, in: Capsule())
+                    .overlay {
+                        Capsule().strokeBorder(
+                            LinearGradient(colors: [.white.opacity(0.3), .white.opacity(0.06), .white.opacity(0.22)], startPoint: .top, endPoint: .bottom),
+                            lineWidth: 1)
+                    }
+                    .contentShape(Capsule())
+            case .close:
+                configuration.label.contentShape(Circle())
+            }
+        }
+        .brightness(configuration.isPressed ? -0.08 : 0)
+        .scaleEffect(configuration.isPressed ? 0.985 : 1)
+        .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
