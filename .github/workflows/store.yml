@@ -66,7 +66,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $answer.Trim()) { throw "Partner Center did not report the app's submission." }
           $found = $answer | ConvertFrom-Json
           if (-not $found.status) { throw "Partner Center's answer has no submission state in it." }
-          $which = "'$($found.friendlyName)' ($($found.status))"
+          # The ID tells a draft that was deleted and started again from one that never went away.
+          $which = "'$($found.friendlyName)' ($($found.status), ID $($found.id))"
           if ($found.status -eq "Published") {
             "::notice::Nothing is open in Partner Center; the newest submission, $which, is in the Store. A new one can be sent."
           } elseif ($found.fileUploadUrl) {
