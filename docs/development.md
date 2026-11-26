@@ -61,8 +61,10 @@ release is published, it builds the package for x64 and for ARM64 from that rele
 the two into one bundle and submits it with Microsoft's
 [Store Developer CLI](https://learn.microsoft.com/windows/apps/publish/msstore-dev-cli/overview).
 Certification then takes its usual time. Run by hand from the Actions tab, it leaves the upload
-as a draft in Partner Center unless told to send it. Either way it replaces a submission that
-was started in Partner Center and not finished.
+as a draft in Partner Center unless told to send it. A draft it left earlier is replaced. A
+submission that was started on the Partner Center website and is still open stops it, because
+Microsoft's API will not touch those: finish or delete that one first. Run by hand with "check"
+ticked, the workflow only signs in and reports whether a submission is open, in under a minute.
 
 It needs five repository secrets (Settings > Secrets and variables > Actions):
 
@@ -71,7 +73,7 @@ It needs five repository secrets (Settings > Secrets and variables > Actions):
 | `PARTNER_CENTER_TENANT_ID` | The Microsoft Entra tenant linked to the Partner Center account |
 | `PARTNER_CENTER_CLIENT_ID` | The Entra app registration that has the Manager role in Partner Center |
 | `PARTNER_CENTER_CLIENT_SECRET` | A client secret of that app registration. It expires; renew it before it does |
-| `PARTNER_CENTER_SELLER_ID` | The Seller ID from Partner Center's account settings |
+| `PARTNER_CENTER_SELLER_ID` | The Seller ID, digits only, from the Legal info page of Partner Center's account settings |
 | `STORE_IDENTITY_JSON` | The contents of `packaging\store-identity.json` |
 
 Microsoft's [guide](https://learn.microsoft.com/windows/apps/publish/msstore-dev-cli/github-actions)

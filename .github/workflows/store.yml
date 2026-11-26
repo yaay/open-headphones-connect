@@ -15,6 +15,10 @@ on:
         description: Send it for certification. Unticked, the upload waits as a draft in Partner Center.
         type: boolean
         default: false
+      check:
+        description: Only ask Partner Center what state the app's submission is in. Builds and sends nothing.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,10 +31,57 @@ env:
   STORE_PRODUCT_ID: 9NXQ80TSQD95
 
 jobs:
+  # A quick look before a release, or when a submission is refused: it signs
+  # in and says whether Partner Center has a submission open. An open one that
+  # was started on the Partner Center website blocks this pipeline, because
+  # Microsoft's API only replaces submissions it created itself.
+  status:
+    name: Ask Partner Center
+    if: github.repository == 'yaay/open-headphones-connect' && inputs.check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up the Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.4
+        with:
+          version: v0.4.4
+
+      - name: Sign in to Partner Center
+        shell: pwsh
+        env:
+          TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+        run: .\packaging\store-sign-in.ps1
+
+      - name: Report the submission's state
+        shell: pwsh
+        run: |
+          # The tool answers with the open submission, or the published one when
+          # none is open, as JSON on standard output. Only its name and state are
+          # shown here: the full answer includes a signed upload address.
+          $answer = msstore submission get $env:STORE_PRODUCT_ID | Out-String
+          if ($LASTEXITCODE -ne 0 -or -not $answer.Trim()) { throw "Partner Center did not report the app's submission." }
+          $found = $answer | ConvertFrom-Json
+          if (-not $found.status) { throw "Partner Center's answer has no submission state in it." }
+          # The ID tells a draft that was deleted and started again from one that never went away.
+          # A submission made through the API has no name.
+          $name = if ($found.friendlyName) { "'$($found.friendlyName)'" } else { "A submission without a name" }
+          $which = "$name ($($found.status), ID $($found.id))"
+          if ($found.status -eq "Published") {
+            "::notice::Nothing is open in Partner Center; the newest submission, $which, is in the Store. A new one can be sent."
+          } elseif ($found.fileUploadUrl) {
+            "::notice::$which is open. It was made through Microsoft's API, so this pipeline replaces it."
+          } else {
+            "::warning::$which is open and was started on the Partner Center website. Delete or finish it there before sending a new one."
+          }
+
   package:
     name: Store package (${{ matrix.arch }})
     # A fork has neither the secrets nor the app.
-    if: github.repository == 'yaay/open-headphones-connect'
+    if: github.repository == 'yaay/open-headphones-connect' && !inputs.check
     strategy:
       matrix:
         include:
@@ -104,12 +155,7 @@ jobs:
           SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
           CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
-        run: |
-          foreach ($name in "TENANT_ID", "SELLER_ID", "CLIENT_ID", "CLIENT_SECRET") {
-            if (-not [Environment]::GetEnvironmentVariable($name)) { throw "The PARTNER_CENTER_$name secret is not set." }
-          }
-          msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
-          if ($LASTEXITCODE -ne 0) { throw "Partner Center did not accept the credentials." }
+        run: .\packaging\store-sign-in.ps1
 
       # A published release always goes for certification; a run by hand does
       # only when asked to.
