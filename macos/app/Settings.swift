@@ -10,6 +10,9 @@ enum Preference {
     static let shortcut = "global-shortcut"
     /// The model of the headphones last connected, whose 3D file is read as the app starts.
     static let lastModel = "last-model"
+    /// Whether headphones in pairing mode nearby, not yet paired with this Mac, get a card that
+    /// offers to pair them.
+    static let pairingOffers = "offer-pairing"
 }
 
 /// Opening at login, through the system's Login Items.

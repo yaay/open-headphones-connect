@@ -250,6 +250,8 @@ pub enum Command {
     PowerOff,
     Connect,
     Disconnect,
+    /// Look through the paired devices again now: the app has just paired a headset.
+    Rescan,
 }
 
 enum Msg {
@@ -473,7 +475,7 @@ fn apply_demo(snap: &mut Snapshot, model: &str, command: Command) {
                 }
             }
         }
-        Command::Transport(_) | Command::AnswerAlert { .. } | Command::Connect => {}
+        Command::Transport(_) | Command::AnswerAlert { .. } | Command::Connect | Command::Rescan => {}
         Command::ReadOptimizerResult | Command::ReadDevices => {}
         Command::Disconnect | Command::PowerOff => {}
     }
@@ -672,7 +674,9 @@ impl Session {
                 self.arrival.gone();
                 self.snap = Snapshot { phase: Phase::NoDevice, ..Snapshot::default() };
                 self.publish();
-                self.idle(Duration::from_secs(4));
+                if let Some(Command::Rescan) = self.idle(Duration::from_secs(4)) {
+                    last_scan = None;
+                }
                 continue;
             };
             self.snap.device_name = Some(device.name().to_owned());
@@ -685,9 +689,13 @@ impl Session {
             if !connected || self.hold_off {
                 self.arrival.gone();
                 self.set_phase(Phase::Disconnected);
-                if let Some(Command::Connect) = self.idle(Duration::from_millis(1500)) {
-                    self.hold_off = false;
-                    self.connect_audio();
+                match self.idle(Duration::from_millis(1500)) {
+                    Some(Command::Connect) => {
+                        self.hold_off = false;
+                        self.connect_audio();
+                    }
+                    Some(Command::Rescan) => last_scan = None,
+                    _ => {}
                 }
                 continue;
             }
@@ -731,14 +739,14 @@ impl Session {
         }
     }
 
-    /// Waits while nothing is connected. Returns early for the two commands
+    /// Waits while nothing is connected. Returns early for the commands
     /// that make sense in that state; everything else is dropped.
     fn idle(&mut self, duration: Duration) -> Option<Command> {
         let deadline = Instant::now() + duration;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match self.rx.recv_timeout(left) {
-                Ok(Msg::Command(c @ (Command::Connect | Command::Disconnect))) => return Some(c),
+                Ok(Msg::Command(c @ (Command::Connect | Command::Disconnect | Command::Rescan))) => return Some(c),
                 Ok(_) => {}
                 Err(_) => return None,
             }
@@ -1397,6 +1405,7 @@ impl Session {
             // Connect means nothing while connected, and the guarded settings
             // above fall through to here when the headset lacks them.
             Command::Connect
+            | Command::Rescan
             | Command::SetNoise(_)
             | Command::SetNcLevel(_)
             | Command::SetEqPreset(_)

@@ -3,9 +3,15 @@
 // Read-only: nothing here changes a setting on the headset.
 //
 //     macos/run.sh probe
+//     macos/run.sh probe scan 20     # instead: what nearby headphones advertise over Bluetooth LE
+//                                    # for 20 seconds, for the pairing card (below, `Scanner`)
+//     macos/run.sh probe inquire 8   # instead: the classic Bluetooth devices that answer a search
+//                                    # (those in pairing mode), which is how the card finds the
+//                                    # address to pair with
 //
 // The Mac counterpart of `--probe` in src-tauri/src/bluetooth/probe.rs.
 
+import CoreBluetooth
 import Foundation
 import IOBluetooth
 
@@ -163,6 +169,98 @@ func askForServices(_ device: IOBluetoothDevice) -> String {
 }
 
 print("Bluetooth radio on: \(IOBluetoothHostController.default()?.powerState == kBluetoothHCIPowerStateON)")
+/// Prints the advertisements that say "pair me", and those of anything named like headphones:
+/// Google Fast Pair (service data FE2C: three bytes are a model id, sent only in pairing mode;
+/// anything longer is an account filter, sent otherwise) and Microsoft Swift Pair (manufacturer
+/// data 0006 03 …, with the classic address when the scenario byte is 01).
+final class Scanner: NSObject, CBCentralManagerDelegate {
+    var manager: CBCentralManager?
+    private var printed: [UUID: String] = [:]
+    private let start = Date()
+    /// Everything heard, to tell "nothing says pair me" from "nothing was heard at all".
+    var heard = Set<UUID>()
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        print("Bluetooth LE state: \(central.state.rawValue) (5 is on, 3 not allowed)")
+        if central.state == .poweredOn {
+            central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
+        }
+    }
+
+    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi: NSNumber) {
+        heard.insert(peripheral.identifier)
+        let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name
+        let serviceData = advertisementData[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data] ?? [:]
+        let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+        let maker = (advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data).map { [UInt8]($0) }
+        let fastPair = serviceData[CBUUID(string: "FE2C")].map { [UInt8]($0) }
+        let swiftPair = maker.flatMap { $0.count >= 4 && $0[0] == 0x06 && $0[1] == 0x00 && $0[2] == 0x03 ? $0 : nil }
+        let upper = (name ?? "").uppercased()
+        let named = hasSonyName(name ?? "") || ["CMF", "NOTHING", "EAR (", "HEADPHONE", "BUDS", "SOUNDCORE"].contains { upper.contains($0) }
+        guard fastPair != nil || swiftPair != nil || named else { return }
+        var parts = ["name=\(name ?? "-")"]
+        if let fastPair {
+            parts.append("fast-pair=[\(hex(fastPair))]" + (fastPair.count == 3 ? " (model id: pairing mode)" : " (account filter: not pairing)"))
+        }
+        if let swiftPair {
+            var said = "swift-pair=[\(hex(swiftPair))] scenario \(swiftPair[3])"
+            if swiftPair[3] == 0x01, swiftPair.count >= 14 {
+                said += " address " + swiftPair[5..<11].reversed().map { String(format: "%02X", $0) }.joined(separator: ":")
+                said += " name \"" + (String(bytes: swiftPair[14...], encoding: .utf8) ?? "?") + "\""
+            }
+            parts.append(said)
+        } else if let maker {
+            parts.append("maker=[\(hex(Array(maker.prefix(12))))]")
+        }
+        if !services.isEmpty { parts.append("services=\(services.map(\.uuidString).joined(separator: ","))") }
+        let others = serviceData.keys.filter { $0 != CBUUID(string: "FE2C") }.map(\.uuidString)
+        if !others.isEmpty { parts.append("service-data=\(others.joined(separator: ","))") }
+        let line = parts.joined(separator: "  ")
+        // Again only when what it says changes: entering pairing mode changes it.
+        if printed[peripheral.identifier] != line {
+            printed[peripheral.identifier] = line
+            print(String(format: "%5.1f s  rssi %4d  ", Date().timeIntervalSince(start), rssi.intValue) + line)
+        }
+    }
+}
+
+/// Prints every classic device that answers an inquiry, as it is found and again once named.
+final class Inquirer: NSObject, IOBluetoothDeviceInquiryDelegate {
+    var done = false
+
+    func say(_ what: String, _ device: IOBluetoothDevice) {
+        print("\(what): \(device.nameOrAddress ?? "?")  [\(device.addressString ?? "?")]  class \(String(format: "%06x", device.classOfDevice))  major \(device.deviceClassMajor)  paired=\(device.isPaired())")
+    }
+
+    func deviceInquiryStarted(_ sender: IOBluetoothDeviceInquiry!) { print("Inquiry started") }
+    func deviceInquiryDeviceFound(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!) { say("found", device) }
+    func deviceInquiryDeviceNameUpdated(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!, devicesRemaining: UInt32) { say("named", device) }
+    func deviceInquiryComplete(_ sender: IOBluetoothDeviceInquiry!, error: IOReturn, aborted: Bool) {
+        print("Inquiry complete: \(code(error)), aborted \(aborted)")
+        done = true
+    }
+}
+
+if let at = CommandLine.arguments.firstIndex(of: "inquire") {
+    let seconds = CommandLine.arguments.dropFirst(at + 1).first.flatMap(UInt8.init) ?? 8
+    let inquirer = Inquirer()
+    let inquiry = IOBluetoothDeviceInquiry(delegate: inquirer)!
+    inquiry.inquiryLength = seconds
+    inquiry.updateNewDeviceNames = true
+    print("Starting: \(code(inquiry.start()))")
+    _ = wait(upTo: TimeInterval(seconds) + 20) { inquirer.done }
+    exit(0)
+}
+
+if let at = CommandLine.arguments.firstIndex(of: "scan") {
+    let seconds = CommandLine.arguments.dropFirst(at + 1).first.flatMap(Double.init) ?? 15
+    let scanner = Scanner()
+    scanner.manager = CBCentralManager(delegate: scanner, queue: nil)
+    RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    print("Scanned for \(Int(seconds)) seconds: \(scanner.heard.count) devices advertising, the ones above of interest.")
+    exit(0)
+}
+
 let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []
 print("Paired devices: \(paired.count)")
 for device in paired {
