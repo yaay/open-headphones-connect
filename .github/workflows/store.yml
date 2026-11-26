@@ -59,13 +59,20 @@ jobs:
       - name: Report the submission's state
         shell: pwsh
         run: |
-          $said = (msstore submission status $env:STORE_PRODUCT_ID | Out-String) -replace "\x1b\[[0-9;]*m", ""
-          $said
-          if ($LASTEXITCODE -ne 0) { throw "Partner Center did not report the app's submission." }
-          if ($said -match "Found Pending Submission") {
-            "::warning::Partner Center has a submission open. If it was started on the Partner Center website, delete or finish it there before sending a new one."
+          # The tool answers with the open submission, or the published one when
+          # none is open, as JSON on standard output. Only its name and state are
+          # shown here: the full answer includes a signed upload address.
+          $answer = msstore submission get $env:STORE_PRODUCT_ID | Out-String
+          if ($LASTEXITCODE -ne 0 -or -not $answer.Trim()) { throw "Partner Center did not report the app's submission." }
+          $found = $answer | ConvertFrom-Json
+          if (-not $found.status) { throw "Partner Center's answer has no submission state in it." }
+          $which = "'$($found.friendlyName)' ($($found.status))"
+          if ($found.status -eq "Published") {
+            "::notice::Nothing is open in Partner Center; the newest submission, $which, is in the Store. A new one can be sent."
+          } elseif ($found.fileUploadUrl) {
+            "::notice::$which is open. It was made through Microsoft's API, so this pipeline replaces it."
           } else {
-            "::notice::No submission is open in Partner Center: a new one can be sent."
+            "::warning::$which is open and was started on the Partner Center website. Delete or finish it there before sending a new one."
           }
 
   package:
