@@ -10,19 +10,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::models;
 use crate::platform::{Bluetooth, Headset, Incoming, Link};
-use crate::protocol::framing::{pack, Frame, TYPE_ACK, TYPE_DATA_MDR, TYPE_DATA_MDR_NO2};
+use crate::protocol::framing::{pack, Frame, Reassembler, TYPE_ACK, TYPE_DATA_MDR, TYPE_DATA_MDR_NO2};
 use crate::protocol::{
     assign, eq_preset_is_editable, v1, v2, AssignableKey, Assignment, Battery, BatterySlot, DeviceKind,
     EqState, Event, Generation, NoiseMode, NoiseState, Optimizer, OptimizerPhase, PairedDevice, Playback,
     Switch, Transport, EQ_MANUAL,
 };
+use crate::protocol::nothing::{self, NcLevel};
+
+mod nothing_link;
 
 const ACK_TIMEOUT: Duration = Duration::from_millis(1000);
 /// How long a question may go unanswered before the next one is asked.
 const REPLY_TIMEOUT: Duration = Duration::from_millis(700);
 const SEND_ATTEMPTS: usize = 3;
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
-const RESCAN_EVERY: Duration = Duration::from_secs(30);
+/// How often the paired devices are looked through again while the one in hand is not connected:
+/// right after the app starts macOS may not yet say which are, and another may connect meanwhile.
+const RESCAN_EVERY: Duration = Duration::from_secs(5);
 /// How long after the user flips a switch a question from the headset is
 /// taken to be about that switch.
 const CONSENT_WINDOW: Duration = Duration::from_secs(15);
@@ -104,6 +109,13 @@ pub struct Snapshot {
     pub eq_presets: Vec<u8>,
     /// The frequency of each band in hertz, where the headset says.
     pub eq_frequencies: Vec<u32>,
+    /// The names of `eq_presets`, in the same order, for headsets whose
+    /// presets an interface cannot know by number (Nothing's). Empty for Sony's.
+    pub eq_preset_names: Vec<String>,
+    /// How strongly noise cancelling works, where that can be chosen apart
+    /// from the mode (Nothing's), and the choices.
+    pub nc_level: Option<NcLevel>,
+    pub nc_levels: Vec<NcLevel>,
     pub firmware: Option<String>,
     pub codec: Option<String>,
     pub can_power_off: bool,
@@ -206,6 +218,8 @@ impl Default for Arrival {
 #[serde(rename_all = "snake_case")]
 pub enum Command {
     SetNoise(NoiseState),
+    /// Turns noise cancelling on at this strength: one of `nc_levels`.
+    SetNcLevel(NcLevel),
     SetEqPreset(u8),
     #[serde(rename_all = "camelCase")]
     SetEqBands { clear_bass: Option<i8>, bands: Vec<i8> },
@@ -241,6 +255,7 @@ pub enum Command {
 enum Msg {
     Command(Command),
     Frame(u64, Frame),
+    Nothing(u64, nothing::Frame),
     Closed(u64, Option<String>),
 }
 
@@ -318,6 +333,9 @@ pub fn spawn_demo(model: String, on_change: impl Fn(&Snapshot) + Send + 'static)
 
 fn demo_snapshot(model: &str, connections: u64) -> Snapshot {
     let battery = |level| Some(Battery { level, charging: false });
+    if let Some(nothing) = nothing::Model::from_name(model) {
+        return nothing_link::demo_snapshot(model, &nothing, connections);
+    }
     let mut snap = Snapshot {
         phase: Phase::Connected,
         device_name: Some(model.into()),
@@ -406,6 +424,12 @@ fn apply_demo(snap: &mut Snapshot, model: &str, command: Command) {
         }
         _ if !connected => {}
         Command::SetNoise(state) => snap.noise = Some(state),
+        Command::SetNcLevel(level) => {
+            snap.nc_level = Some(level);
+            if let Some(noise) = snap.noise.as_mut() {
+                noise.mode = NoiseMode::NoiseCancelling;
+            }
+        }
         Command::SetEqPreset(preset) => {
             if let Some(eq) = snap.eq.as_mut() {
                 eq.preset = preset;
@@ -573,6 +597,8 @@ fn switch_command(conn: &Conn, id: Switch, on: bool) -> Option<(u8, Vec<u8>)> {
             TYPE_DATA_MDR_NO2,
             v2::set_voice_guidance(link.caps.voice_guidance?, on, link.voice_language),
         ),
+        // Nothing's only.
+        (_, Switch::LowLatency) => return None,
     })
 }
 
@@ -690,11 +716,12 @@ impl Session {
                 continue;
             }
             if failures >= 3 {
-                self.snap.notice = Some(
+                let name = self.snap.device_name.as_deref().unwrap_or_default();
+                let app = if nothing::is_nothing_name(name) { "Nothing X" } else { "Sony" };
+                self.snap.notice = Some(format!(
                     "Connected for audio, but the headphones aren't answering control requests. \
-                     Close the Sony app on other devices, or turn the headphones off and on."
-                        .into(),
-                );
+                     Close the {app} app on other devices, or turn the headphones off and on."
+                ));
             }
             self.set_phase(Phase::Connecting);
             let backoff = Duration::from_millis(800 * 2u64.pow(failures.min(4)));
@@ -757,14 +784,25 @@ impl Session {
     // ----- a live link -----------------------------------------------------
 
     fn serve(&mut self, link: Box<dyn Link>, generation: Generation) -> String {
+        if generation == Generation::Nothing {
+            return self.serve_nothing(link);
+        }
         self.next_link_id += 1;
         let id = self.next_link_id;
         let tx = self.tx.clone();
-        link.listen(Box::new(move |incoming| {
-            let _ = tx.send(match incoming {
-                Incoming::Frame(frame) => Msg::Frame(id, frame),
-                Incoming::Closed(why) => Msg::Closed(id, why),
-            });
+        let mut reassembler = Reassembler::default();
+        link.listen(Box::new(move |incoming| match incoming {
+            Incoming::Frame(frame) => {
+                let _ = tx.send(Msg::Frame(id, frame));
+            }
+            Incoming::Bytes(bytes) => {
+                for frame in reassembler.feed(&bytes) {
+                    let _ = tx.send(Msg::Frame(id, frame));
+                }
+            }
+            Incoming::Closed(why) => {
+                let _ = tx.send(Msg::Closed(id, why));
+            }
         }));
 
         let name = self.snap.device_name.clone().unwrap_or_default();
@@ -790,6 +828,7 @@ impl Session {
                     ..V1Link::default()
                 }),
                 Generation::V2 => Dialect::V2(V2Link::default()),
+                Generation::Nothing => unreachable!("served by serve_nothing"),
             },
         };
         self.queue.clear();
@@ -1359,6 +1398,7 @@ impl Session {
             // above fall through to here when the headset lacks them.
             Command::Connect
             | Command::SetNoise(_)
+            | Command::SetNcLevel(_)
             | Command::SetEqPreset(_)
             | Command::SetVolume(_)
             | Command::Transport(_)

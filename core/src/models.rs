@@ -27,7 +27,9 @@ pub fn has_wind_mode(name: &str) -> bool {
 
 pub fn is_earbuds(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
-    upper.contains("WF-") || upper.contains("LINKBUDS")
+    upper.contains("WF-")
+        || upper.contains("LINKBUDS")
+        || crate::protocol::nothing::Model::from_name(name).is_some_and(|model| model.earbuds)
 }
 
 #[cfg(test)]

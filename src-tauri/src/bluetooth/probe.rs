@@ -193,6 +193,7 @@ fn talk(
             ("general setting 2: value", T1, v2::get_general_setting(0xD2)),
             ("voice guidance", T2, v2::get_voice_guidance(0x01)),
         ],
+        Generation::Nothing => Vec::new(),
     };
 
     if write_test {
@@ -208,6 +209,7 @@ fn talk(
                 continue;
             };
             payload = match generation {
+                Generation::Nothing => continue,
                 Generation::V1 => v1::set_noise(v1::NoiseKind::Both, current, true),
                 Generation::V2 => {
                     let layout = noise_raw.as_ref().and_then(|raw| v2::NoiseLayout::of(raw[1]));
@@ -235,6 +237,7 @@ fn talk(
                     let events = match generation {
                         Generation::V1 => v1::parse(frame.kind, &frame.payload),
                         Generation::V2 => v2::parse(frame.kind, &frame.payload),
+                        Generation::Nothing => Vec::new(),
                     };
                     println!("  < type {:#04x}  {:02x?}", frame.kind, frame.payload);
                     println!("    understood as {events:?}");
@@ -252,6 +255,8 @@ fn talk(
                 Ok(Incoming::Closed(why)) => {
                     return Err(format!("closed by the headset: {}", why.unwrap_or_else(|| "no reason given".into())));
                 }
+                // The Windows link hands over whole frames.
+                Ok(Incoming::Bytes(_)) => {}
                 Err(_) => break,
             }
         }

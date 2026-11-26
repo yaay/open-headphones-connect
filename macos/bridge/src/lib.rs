@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use ohc_core::models::generation_from_name;
 use ohc_core::platform::{Bluetooth, Headset, Incoming, Link};
-use ohc_core::protocol::framing::Reassembler;
 use ohc_core::protocol::Generation;
 use ohc_core::session::{self, Command, Handle, Snapshot};
 
@@ -97,6 +96,7 @@ impl Headset for MacHeadset {
         let generation = match generation {
             1 => Generation::V1,
             2 => Generation::V2,
+            3 => Generation::Nothing,
             other => return Err(format!("The control channel speaks an unknown generation ({other})")),
         };
         Ok((Box::new(link), generation))
@@ -119,12 +119,11 @@ impl Drop for MacHeadset {
 
 type Listener = Box<dyn FnMut(Incoming) + Send>;
 
-/// Where a channel's bytes become frames. Swift holds a pointer to it from
-/// `headset_open` until `link_close` returns, which is why `MacLink` keeps
-/// it alive until then.
+/// Where a channel's bytes go on their way to the session, which puts the
+/// frames together. Swift holds a pointer to it from `headset_open` until
+/// `link_close` returns, which is why `MacLink` keeps it alive until then.
 #[derive(Default)]
 struct Inbox {
-    reassembler: Reassembler,
     listener: Option<Listener>,
     /// What arrived before the session started listening.
     early: Vec<Incoming>,
@@ -210,7 +209,8 @@ pub unsafe extern "C" fn ohc_send(command_json: *const c_char) -> bool {
 /// `name` is a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn ohc_is_headset_name(name: *const c_char) -> bool {
-    generation_from_name(&CStr::from_ptr(name).to_string_lossy()).is_some()
+    let name = CStr::from_ptr(name).to_string_lossy();
+    generation_from_name(&name).is_some() || ohc_core::protocol::nothing::is_nothing_name(&name)
 }
 
 /// # Safety
@@ -218,10 +218,8 @@ pub unsafe extern "C" fn ohc_is_headset_name(name: *const c_char) -> bool {
 /// returned yet; `bytes` points to `length` bytes.
 #[no_mangle]
 pub unsafe extern "C" fn ohc_link_received(inbox: *const c_void, bytes: *const u8, length: usize) {
-    let mut inbox = (*inbox.cast::<Mutex<Inbox>>()).lock().unwrap();
-    for frame in inbox.reassembler.feed(std::slice::from_raw_parts(bytes, length)) {
-        inbox.deliver(Incoming::Frame(frame));
-    }
+    let chunk = std::slice::from_raw_parts(bytes, length).to_vec();
+    (*inbox.cast::<Mutex<Inbox>>()).lock().unwrap().deliver(Incoming::Bytes(chunk));
 }
 
 /// # Safety

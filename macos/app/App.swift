@@ -148,9 +148,25 @@ private struct MenuBarLabel: View {
             }
         }
         .onChange(of: headset.arrivals) {
-            if UserDefaults.standard.bool(forKey: Preference.connectCard) {
+            guard UserDefaults.standard.bool(forKey: Preference.connectCard), !CardScene.wouldIntrude else { return }
+            let model = headset.snapshot.model
+            Task {
+                // The card opens with its 3D model in hand. For headphones seen before it already
+                // is; for new ones the card comes a moment later, and whole.
+                if CardClip.file(for: model) == nil {
+                    await HeadphonesView.preload(model)
+                }
                 openWindow(id: CardScene.id)
             }
+        }
+        // The model of the headphones used last is read as the app starts, well before they
+        // connect; another pair's as soon as it says what it is.
+        .task {
+            await HeadphonesView.preload(UserDefaults.standard.string(forKey: Preference.lastModel))
+        }
+        .onChange(of: headset.snapshot.model) { _, model in
+            guard let model else { return }
+            UserDefaults.standard.set(model, forKey: Preference.lastModel)
         }
     }
 }

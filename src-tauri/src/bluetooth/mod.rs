@@ -43,6 +43,8 @@ pub fn service_uuid(generation: Generation) -> GUID {
     GUID::from_u128(match generation {
         Generation::V1 => v1::SERVICE_UUID,
         Generation::V2 => v2::SERVICE_UUID,
+        // Not offered on Windows yet: Nothing devices are not named like Sony's.
+        Generation::Nothing => v2::SERVICE_UUID,
     })
 }
 

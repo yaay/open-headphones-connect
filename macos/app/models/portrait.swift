@@ -1,7 +1,13 @@
 // Draws the still of the 3D headphones that heads the panel, portrait.png beside this file, from
 // headphones.usdz: the model at rest, lit as on the connect card, on a clear ground.
 //
-//     swift macos/app/models/portrait.swift
+//     swift macos/app/models/portrait.swift                  # portrait.png, from headphones.usdz
+//     swift macos/app/models/portrait.swift cmf-buds-pro-2   # portrait-cmf-buds-pro-2.png, from
+//                                                            # headphones-cmf-buds-pro-2.usdz
+//     swift macos/app/models/portrait.swift cmf-buds-pro-2 7 E1381C Case,Buds
+//                                                            # portrait-cmf-buds-pro-2-7.png: the
+//                                                            # materials whose names start so, in that
+//                                                            # colour (the finishes in Card.swift)
 //
 // The picture is committed, so the app needs neither this nor a 3D view in the panel. Run it
 // again when the model changes.
@@ -10,6 +16,11 @@ import AppKit
 import RealityKit
 
 let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+/// A model's own files, or the general ones.
+let arguments = Array(CommandLine.arguments.dropFirst())
+let suffix = arguments.first.map { "-" + $0 } ?? ""
+let finish = arguments.count >= 4 ? (number: arguments[1], hex: arguments[2], parts: arguments[3].split(separator: ",").map(String.init)) : nil
+let output = "portrait\(suffix)\(finish.map { "-" + $0.number } ?? "").png"
 let size = NSRect(x: 0, y: 0, width: 184, height: 160)
 _ = NSApplication.shared
 let view = ARView(frame: size)
@@ -27,8 +38,25 @@ func bothSides(_ entity: Entity) {
     entity.children.forEach(bothSides)
 }
 
-let model = try Entity.load(contentsOf: here.appendingPathComponent("headphones.usdz"))
+let model = try Entity.load(contentsOf: here.appendingPathComponent("headphones\(suffix).usdz"))
 bothSides(model)
+if let finish, let value = Int(finish.hex, radix: 16) {
+    let colour = NSColor(srgbRed: CGFloat(value >> 16 & 0xFF) / 255, green: CGFloat(value >> 8 & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    func tint(_ entity: Entity) {
+        if var part = entity.components[ModelComponent.self] {
+            part.materials = part.materials.map { material in
+                guard var surface = material as? PhysicallyBasedMaterial,
+                      finish.parts.contains(where: { (surface.name ?? "").hasPrefix($0) })
+                else { return material }
+                surface.baseColor.tint = colour
+                return surface
+            }
+            entity.components.set(part)
+        }
+        entity.children.forEach(tint)
+    }
+    tint(model)
+}
 model.position = -model.visualBounds(relativeTo: nil).center
 let pivot = Entity()
 pivot.addChild(model)
@@ -58,8 +86,8 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
         guard let picture, let data = picture.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data),
               let png = bitmap.representation(using: .png, properties: [:])
         else { fatalError("no picture") }
-        try! png.write(to: here.appendingPathComponent("portrait.png"))
-        print("portrait.png: \(bitmap.pixelsWide) × \(bitmap.pixelsHigh)")
+        try! png.write(to: here.appendingPathComponent(output))
+        print("\(output): \(bitmap.pixelsWide) × \(bitmap.pixelsHigh)")
         exit(0)
     }
 }

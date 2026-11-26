@@ -86,7 +86,11 @@ esac
 version=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$here/../package.json")
 case "$tool" in
 app | package | store)
-    cp "$here"/app/models/*.usdz "$here"/app/models/portrait.png "$here/../src-tauri/icons/icon.icns" "$here/../LICENSE" "$app/Contents/Resources/"
+    # The 3D models, the pictures of them, and the clips some models have in place of one.
+    for resource in "$here"/app/models/*.usdz "$here"/app/models/*.png "$here"/app/models/*.mov "$here"/app/models/*.mp4; do
+        [ ! -e "$resource" ] || cp "$resource" "$app/Contents/Resources/"
+    done
+    cp "$here/../src-tauri/icons/icon.icns" "$here/../LICENSE" "$app/Contents/Resources/"
     ;;
 esac
 cat > "$app/Contents/Info.plist" <<PLIST
