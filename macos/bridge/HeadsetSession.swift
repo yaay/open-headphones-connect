@@ -6,6 +6,7 @@
 // here hops to the main thread, and the ones that wait for IOBluetooth to report back wait on
 // the session's thread, never on the main one.
 
+import CoreBluetooth
 import Foundation
 import IOBluetooth
 
@@ -20,8 +21,11 @@ enum HeadsetSession {
         if let demo {
             return ohc_start_demo(demo, report)
         }
+        Radio.shared.start()
         var bluetooth = OhcBluetooth(
-            radio_is_on: { onMain { IOBluetoothHostController.default()?.powerState == kBluetoothHCIPowerStateON } },
+            radio_is_on: {
+                Radio.shared.isOn ?? onMain { IOBluetoothHostController.default()?.powerState == kBluetoothHCIPowerStateON }
+            },
             find_headset: {
                 onMain {
                     let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []
@@ -72,6 +76,36 @@ enum HeadsetSession {
     @discardableResult
     static func send(_ command: String) -> Bool {
         ohc_send(command)
+    }
+}
+
+/// Whether the Bluetooth radio is on, as CoreBluetooth says. IOBluetooth's own answer can stick
+/// at "off" in an app that started while Bluetooth was still coming on, and never change.
+private final class Radio: NSObject, CBCentralManagerDelegate {
+    static let shared = Radio()
+    private var manager: CBCentralManager?
+    private let lock = NSLock()
+    private var state = CBManagerState.unknown
+
+    func start() {
+        // On a queue of its own: on the main one it can deadlock with IOBluetooth's first call.
+        manager = CBCentralManager(delegate: self, queue: DispatchQueue(label: "radio"),
+                                   options: [CBCentralManagerOptionShowPowerAlertKey: false])
+    }
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        lock.withLock { state = central.state }
+    }
+
+    /// `nil` while CoreBluetooth has not said, or cannot (without permission, or resetting).
+    var isOn: Bool? {
+        lock.withLock {
+            switch state {
+            case .poweredOn: true
+            case .poweredOff: false
+            default: nil
+            }
+        }
     }
 }
 

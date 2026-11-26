@@ -116,6 +116,9 @@ struct Snapshot: Decodable, Equatable {
     /// The model and firmware as the headphones report them.
     var model: String?
     var firmware: String?
+    /// The colour of this unit, by the number the headphones give it; what it means depends on
+    /// the model (`finishes` in Card.swift).
+    var colour: Int?
     var battery = Batteries()
     var noise: NoiseState?
     var noiseModes: [NoiseMode] = []

@@ -25,7 +25,9 @@ const ACK_TIMEOUT: Duration = Duration::from_millis(1000);
 const REPLY_TIMEOUT: Duration = Duration::from_millis(700);
 const SEND_ATTEMPTS: usize = 3;
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
-const RESCAN_EVERY: Duration = Duration::from_secs(30);
+/// How often the paired devices are looked through again while the one in hand is not connected:
+/// right after the app starts macOS may not yet say which are, and another may connect meanwhile.
+const RESCAN_EVERY: Duration = Duration::from_secs(5);
 /// How long after the user flips a switch a question from the headset is
 /// taken to be about that switch.
 const CONSENT_WINDOW: Duration = Duration::from_secs(15);

@@ -41,6 +41,8 @@ pub mod command {
     pub const GET_LOW_LATENCY: u16 = 0xC041;
     pub const SET_LOW_LATENCY: u16 = 0xF040;
     pub const GET_FIRMWARE: u16 = 0xC042;
+    /// The colour of this unit, as a number the model's own range gives meaning to.
+    pub const GET_COLOUR: u16 = 0xC00C;
     /// The "listening modes" that CMF earbuds have in place of presets.
     pub const GET_LISTENING_MODE: u16 = 0xC050;
     pub const SET_LISTENING_MODE: u16 = 0xF01D;

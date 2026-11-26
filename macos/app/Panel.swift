@@ -77,10 +77,12 @@ func resourceName(_ kind: String, for model: String?) -> String? {
     return words.isEmpty ? nil : ([kind] + words).joined(separator: "-")
 }
 
-/// The still of these headphones in the app's resources, or of the general 3D model.
-/// `Image("portrait")` would look for it in an asset catalog, which the app does not have.
-func portrait(for model: String?) -> Image {
-    let own = resourceName("portrait", for: model).flatMap { NSImage(named: $0) }
+/// The still of these headphones in the app's resources, in their colour where there is one
+/// (portrait-<name>-<colour>.png), or of the general 3D model. `Image("portrait")` would look for
+/// it in an asset catalog, which the app does not have.
+func portrait(for model: String?, colour: Int? = nil) -> Image {
+    let name = resourceName("portrait", for: model)
+    let own = colour.flatMap { colour in name.flatMap { NSImage(named: "\($0)-\(colour)") } } ?? name.flatMap { NSImage(named: $0) }
     return (own ?? NSImage(named: "portrait")).map { Image(nsImage: $0) } ?? Image(systemName: "headphones")
 }
 
@@ -104,7 +106,7 @@ private struct Header: View {
         // right.
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(snapshot.deviceName ?? "Sony headphones")
+                Text(snapshot.deviceName ?? "Headphones")
                     .font(.title2.weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
@@ -133,7 +135,7 @@ private struct Header: View {
             .frame(maxHeight: .infinity, alignment: .topLeading)
             Spacer(minLength: 0)
             // A still of the connect card's 3D model, made by models/portrait.swift.
-            portrait(for: snapshot.model)
+            portrait(for: snapshot.model, colour: snapshot.colour)
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()

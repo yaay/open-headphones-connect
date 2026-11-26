@@ -119,6 +119,8 @@ impl Session {
         self.nothing_ask(conn, command::GET_DEVICE_INFO, &[])?;
         let battery = self.nothing_ask(conn, command::GET_BATTERY, &[])?;
         let noise = self.nothing_ask(conn, command::GET_NOISE, &[3])?;
+        // Before the card appears, which shows the headphones in their colour.
+        self.nothing_ask(conn, command::GET_COLOUR, &[])?;
         if version.is_none() && battery.is_none() && noise.is_none() {
             return Err(LinkError::Closed("no answer from the headset".into()));
         }
@@ -257,6 +259,8 @@ impl Session {
             if let Some(on) = nothing::parse_low_latency(&frame.payload) {
                 self.snap.set_switch(Switch::LowLatency, on);
             }
+        } else if answer(command::GET_COLOUR) {
+            self.snap.colour = frame.payload.first().copied();
         } else if answer(command::GET_FIRMWARE) {
             self.snap.firmware = Some(nothing::parse_text(&frame.payload)).filter(|text| !text.is_empty());
         }

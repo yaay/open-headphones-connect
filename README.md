@@ -66,7 +66,8 @@ icon for the panel.
 | LinkBuds, LinkBuds S, Fit, Open, Clip | ❔ Untested | |
 | WH-CH720N, WH-XB900N | ❔ Untested | |
 | Nothing Ear (1), (2), (3), (a), Ear; Headphone (1) | ❔ Untested | Mac only: battery, noise control with its strength, EQ presets, in-ear detection, low latency |
-| CMF Buds Pro 2, Buds 2, Buds, Buds Pro, Headphone Pro | ❔ Untested | Mac only, as above |
+| **CMF Buds Pro 2** | ⚠️ Mostly works | Mac only. Tried on real earbuds: battery for each bud, noise control and its strength, pausing when taken off, their colour on the card; the EQ presets and the two switches are not yet confirmed |
+| CMF Buds 2, Buds, Buds Pro, Headphone Pro | ❔ Untested | Mac only, as above |
 | Headphones from other brands | ❌ Not supported | Sony, Nothing and CMF only |
 
 "Works" means everything in the list above: the connect card, battery, noise control, playback,

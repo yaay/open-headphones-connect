@@ -8,6 +8,8 @@ import ServiceManagement
 enum Preference {
     static let connectCard = "show-connect-card"
     static let shortcut = "global-shortcut"
+    /// The model of the headphones last connected, whose 3D file is read as the app starts.
+    static let lastModel = "last-model"
 }
 
 /// Opening at login, through the system's Login Items.

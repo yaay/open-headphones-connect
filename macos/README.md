@@ -327,7 +327,11 @@ puts together as Sony or Nothing frames.
   `portrait-<name>.png` for the panel, or `card-<name>.mov` or `.mp4`, a clip the card plays
   instead (muted, once, the card staying until it ends). A clip on a plain ground needs no
   cut-out: the card takes the colour of its first frame's corner, and the clip's edges fade into
-  it. The glow behind a 3D model waits for the model, so it never shows alone. `<name>` is the model name in lower
+  it. The glow behind a 3D model waits for the model, so it never shows alone.
+- A model can take a second to read (the CMF Buds Pro 2's, 1.3 s), so the app reads the one of
+  the headphones used last as it starts, and opens the card only once its model is in memory.
+  A finish the headphones report (`finishes` in `Card.swift`: so far the orange CMF Buds Pro 2,
+  colour 7) tints the model and picks the panel's still, `portrait-<name>-<colour>.png`. `<name>` is the model name in lower
   case with dashes: `cmf-buds-pro-2`, `headphone-1`, `cmf-headphone-pro`. Models without them get
   the general ones. `models/blender_usdz.py` says how the Nothing and CMF ones were made.
 - `core/tests/nothing_headset.rs` runs the whole session against a stand-in CMF Buds Pro 2.
